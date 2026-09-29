@@ -37,7 +37,7 @@ async function api(path, opts = {}) {
   const r = await fetch('/api' + path, init);
   const j = await r.json().catch(() => ({}));
   if (r.status === 401 && path !== '/login') { await boot(); throw new Error(j.error || 'Please sign in again.'); }
-  if (!r.ok) throw new Error(j.error || 'Something went wrong (' + r.status + ')');
+  if (!r.ok) throw Object.assign(new Error(j.error || 'Something went wrong (' + r.status + ')'), { data: j });
   return j;
 }
 function toast(msg, bad) {
@@ -473,7 +473,7 @@ function profileCard(p) {
     <label class="field"><span class="label">Access token</span><textarea id="tok-${p.id}" rows="3" placeholder="EAA…" spellcheck="false"></textarea></label>
     ${pages.length > 1 ? `<label class="field" style="margin-top:10px"><span class="label">Facebook Page</span><select id="page-${p.id}">${pages.map(x => `<option value="${esc(x.id)}" ${x.name === p.facebook.label ? 'selected' : ''}>${esc(x.name)}${x.ig ? ' (Instagram @' + esc(x.ig) + ')' : ''}</option>`).join('')}</select></label>` : ''}
     <details class="help" ${p.facebook.own_app ? 'open' : ''}><summary>This profile's own Meta app (only if this person made their own app)</summary>
-      <p class="muted small">Leave empty to use the Meta app from Settings (${esc(s.meta_app_id || 'not saved yet')}). If the token was made with another app, KMR Studio tells you its name; then paste that app's ID and secret here.</p>
+      <p class="muted small">Leave empty to use the Meta app from Settings (${esc(s.meta_app_id || 'not saved yet')}). If the token was made with another app, KMR Studio fills in its ID; you paste its secret: <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>, open that app, <b>App settings, Basic</b>, <b>App secret: Show</b>, copy.</p>
       <div class="form-grid"><label class="field"><span class="label">App ID</span><input id="mapp-id-${p.id}" value="${esc(p.facebook.own_app || '')}" autocomplete="off"></label><label class="field"><span class="label">App secret${p.facebook.own_app ? ' (saved)' : ''}</span><input id="mapp-sec-${p.id}" placeholder="${p.facebook.own_app ? 'Saved: leave empty to keep it' : ''}" autocomplete="off"></label></div></details>
     <div class="btn-row" style="margin-top:10px"><button class="btn primary sm" data-meta="${p.id}">Connect</button><button class="btn quiet sm" data-open="${p.id}:meta">Cancel</button></div>` : '';
   const metaBtns = (p.facebook.ok ? `<button class="btn sm" data-check="${p.id}:meta">Check</button>` : '') + `<button class="btn sm ${p.facebook.ok ? '' : 'primary'}" data-open="${p.id}:meta" ${s.meta_app_id ? '' : 'disabled title="Save the Meta app keys in Settings first"'}>${p.facebook.ok ? 'Change' : 'Connect'}</button>` + (p.facebook.ok ? `<button class="btn sm quiet danger" data-disc="${p.id}:meta">Disconnect</button>` : '');
@@ -500,7 +500,17 @@ document.addEventListener('click', e => {
   if (d.open) { S.open[d.open] = !S.open[d.open]; rerenderMain(); }
   if (d.check) { const [pid, k] = d.check.split(':'); busy(t, async () => { try { toast((await api(`/profiles/${pid}/${k}/check`, { body: {} })).message); } finally { await refreshState(); rerenderMain(); } }); }
   if (d.disc) { const [pid, k] = d.disc.split(':'); if (confirm('Disconnect this account? You can connect it again any time.')) busy(t, async () => { await api(`/profiles/${pid}/${k}/disconnect`, { body: {} }); S.targets.delete(`${pid}:${k}`); if (k === 'meta') { S.targets.delete(`${pid}:facebook`); S.targets.delete(`${pid}:instagram`); } await refreshState(); rerenderMain(); }); }
-  if (d.meta) busy(t, async () => { const tok = $('#tok-' + d.meta).value.trim(); const pg = $('#page-' + d.meta); const oid = $('#mapp-id-' + d.meta), osec = $('#mapp-sec-' + d.meta); const r = await api(`/profiles/${d.meta}/meta/connect`, { body: { user_token: tok, page_id: pg ? pg.value : undefined, own_app_id: oid ? oid.value.trim() : undefined, own_app_secret: osec && osec.value.trim() ? osec.value.trim() : undefined } }); S.open[d.meta + ':meta'] = false; await refreshState(); rerenderMain(); toast(r.message); });
+  if (d.meta) busy(t, async () => { const tok = $('#tok-' + d.meta).value.trim(); const pg = $('#page-' + d.meta); const oid = $('#mapp-id-' + d.meta), osec = $('#mapp-sec-' + d.meta); let r;
+    try { r = await api(`/profiles/${d.meta}/meta/connect`, { body: { user_token: tok, page_id: pg ? pg.value : undefined, own_app_id: oid ? oid.value.trim() : undefined, own_app_secret: osec && osec.value.trim() ? osec.value.trim() : undefined } }); }
+    catch (err) {
+      const need = err.data && err.data.need_app;
+      if (need && oid) { // the token came from another Meta app: open its box with the ID filled in, ask only for the secret
+        oid.value = need.id; oid.closest('details').open = true;
+        if (osec) { osec.value = ''; osec.placeholder = `App secret of ${need.name}`; osec.focus(); }
+        S.metaNeed = { pid: d.meta, id: need.id, name: need.name };
+      }
+      throw err;
+    } S.open[d.meta + ':meta'] = false; await refreshState(); rerenderMain(); toast(r.message); });
   if (d.oauth) { const [pid, k] = d.oauth.split(':'); busy(t, async () => { const r = await api(`/profiles/${pid}/${k}/start`); location.href = r.url; }); }
   if (d.yt) busy(t, async () => { const first = !S.yt[d.yt]; S.yt[d.yt] = { ...await api(`/profiles/${d.yt}/youtube/start`, { body: {} }), polling: true }; rerenderMain(); if (first) ytPoll(d.yt); });
   if (d.ytcheck) busy(t, async () => { await ytPoll(d.ytcheck, 0, true); if (S.yt[d.ytcheck]) toast('Google has not seen the code yet. Enter it at google.com/device and press Allow.'); });

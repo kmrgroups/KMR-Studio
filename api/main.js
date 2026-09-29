@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.5.0';
+const VERSION = '2.5.1';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -136,7 +136,7 @@ module.exports = async function handler(req, res) {
     return H.send(res, 404, { error: 'Not found: ' + path });
   } catch (e) {
     if (!e.status && !/^[A-Z]/.test(e.message || '')) console.error(path, e);
-    return H.send(res, e.status || 400, { error: e.message || String(e) });
+    return H.send(res, e.status || 400, { error: e.message || String(e), ...(e.need_app ? { need_app: e.need_app } : {}) });
   }
 };
 module.exports.VERSION = VERSION;

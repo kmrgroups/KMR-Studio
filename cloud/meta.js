@@ -63,7 +63,7 @@ async function connect(pid, { user_token, page_id, own_app_id, own_app_secret })
     if (made && made.id && String(made.id) !== String(app.id)) {
       const shared = await st.settings();
       if (String(made.id) === String(shared.meta_app_id) && shared.meta_app_secret) app = { id: shared.meta_app_id, secret: shared.meta_app_secret, own: false };
-      else throw new Error(`This token was made with the Meta app "${made.name}" (ID ${made.id}), but ${app.id ? `this profile uses the app with ID ${app.id}` : 'no Meta app keys are saved'}. Either choose the right app in the "Meta App" box of Graph API Explorer and make the token again, or save "${made.name}"'s App ID and App secret under "This profile's own Meta app" below and press Connect.`);
+      else throw Object.assign(new Error(`This token was made with the Meta app "${made.name}". Paste the App secret of "${made.name}" in the box below (App ID is filled in), then press Connect.`), { need_app: { id: String(made.id), name: made.name } });
     }
     if (!app.id || !app.secret) throw new Error('Save the Meta App ID and App secret first (Settings, or this profile\'s own Meta app below). Without them the login only lasts about one hour.');
     try { token = (await gget('oauth/access_token', { grant_type: 'fb_exchange_token', client_id: app.id, client_secret: app.secret, fb_exchange_token: fresh })).access_token; }
