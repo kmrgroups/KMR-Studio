@@ -8,7 +8,8 @@ const ACC = {
   yt: ['refresh', 'channel', 'channel_id', 'client_id', 'client_secret'],
   meta: ['user_token', 'page_id', 'page_name', 'page_token', 'ig_id', 'ig_username', 'pages', 'expires', 'missing'],
   li: ['token', 'expires_at', 'urn', 'name'],
-  x: ['access', 'refresh', 'expires_at', 'username', 'name']
+  x: ['access', 'refresh', 'expires_at', 'username', 'name'],
+  mapp: ['app_id', 'app_secret']
 };
 const pick = (o, keys) => { const r = {}; for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') r[k] = o[k]; return r; };
 
@@ -41,10 +42,10 @@ async function importData(data, base) {
     let n = 0;
     for (const [sec, fields] of Object.entries(ACC)) {
       const acc = pick(p[sec], fields);
-      const real = sec === 'yt' ? acc.refresh || acc.client_id : sec === 'meta' ? acc.page_token : sec === 'li' ? acc.token : acc.refresh;
+      const real = sec === 'yt' ? acc.refresh || acc.client_id : sec === 'meta' ? acc.page_token : sec === 'li' ? acc.token : sec === 'mapp' ? acc.app_id : acc.refresh;
       if (!real) continue;
       await st.setAccount(id, sec, { ...acc, problem: '' }, true);
-      if (sec === 'yt' ? acc.refresh : true) n++;
+      if (sec === 'yt' ? acc.refresh : sec !== 'mapp') n++;
     }
     out.accounts += n;
     out.profiles.push(name + (n ? ` (${n} account${n > 1 ? 's' : ''})` : ''));
@@ -64,7 +65,7 @@ async function exportData() {
     kind: 'kmr-studio-backup', version: 1, created: new Date().toISOString(),
     note: 'Contains your app keys and account logins. Keep this file private. Import it in KMR Studio, Settings, Bring keys from a file.',
     settings: { ...pick(s, KEYS), default_targets: s.default_targets || [] },
-    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x) }))
+    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x), mapp: pick(p.mapp, ACC.mapp) }))
   };
 }
 

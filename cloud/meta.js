@@ -35,23 +35,45 @@ async function inspect(token, app_id, app_secret) {
   return { valid: !!d.is_valid, expires: Number(d.expires_at || 0), scopes: d.scopes || [] };
 }
 
-async function connect(pid, { user_token, page_id }) {
-  const s = await st.settings();
+// The Meta app a profile uses: its own (if saved under the profile) or the shared one from Settings.
+async function appFor(pid) {
+  const s = await st.settings(), own = await st.account(pid, 'mapp');
+  return own.app_id && own.app_secret ? { id: own.app_id, secret: own.app_secret, own: true } : { id: s.meta_app_id, secret: s.meta_app_secret, own: false };
+}
+async function setOwnApp(pid, id, secret) {
+  id = String(id || '').trim(); secret = String(secret || '').trim();
+  if (!id && !secret) return st.setAccount(pid, 'mapp', {}, true);
+  if (!/^\d{6,}$/.test(id)) throw new Error('The Meta App ID is a long number (developers.facebook.com, your app, App settings, Basic).');
+  const cur = await st.account(pid, 'mapp');
+  await st.setAccount(pid, 'mapp', { app_id: id, app_secret: secret && !secret.startsWith('••') ? secret : cur.app_secret || '' }, true);
+}
+
+async function connect(pid, { user_token, page_id, own_app_id, own_app_secret }) {
   if (!await st.profile(pid)) throw new Error('Profile not found.');
+  if (own_app_id !== undefined || own_app_secret) await setOwnApp(pid, own_app_id, own_app_secret);
   const m = await st.account(pid, 'meta');
   const fresh = String(user_token || '').trim();
   let token = fresh || m.user_token;
   if (!token) throw new Error('Paste the access token from Graph API Explorer.');
-  if (fresh && (!s.meta_app_id || !s.meta_app_secret)) throw new Error('Save the Meta App ID and App secret first (Settings, App keys). Without them the login only lasts about one hour.');
+  let app = await appFor(pid);
   if (fresh) {
-    try { token = (await gget('oauth/access_token', { grant_type: 'fb_exchange_token', client_id: s.meta_app_id, client_secret: s.meta_app_secret, fb_exchange_token: fresh })).access_token; }
-    catch (e) { throw new Error('Facebook did not accept the App ID, App secret and token together. Check that the token was made for this same app in Graph API Explorer. (' + e.message + ')'); }
+    // which Meta app was this token made for? (Graph API Explorer has a "Meta App" box)
+    let made = null;
+    try { made = await gget('app', { fields: 'id,name', access_token: fresh }); } catch {}
+    if (made && made.id && String(made.id) !== String(app.id)) {
+      const shared = await st.settings();
+      if (String(made.id) === String(shared.meta_app_id) && shared.meta_app_secret) app = { id: shared.meta_app_id, secret: shared.meta_app_secret, own: false };
+      else throw new Error(`This token was made with the Meta app "${made.name}" (ID ${made.id}), but ${app.id ? `this profile uses the app with ID ${app.id}` : 'no Meta app keys are saved'}. Either choose the right app in the "Meta App" box of Graph API Explorer and make the token again, or save "${made.name}"'s App ID and App secret under "This profile's own Meta app" below and press Connect.`);
+    }
+    if (!app.id || !app.secret) throw new Error('Save the Meta App ID and App secret first (Settings, or this profile\'s own Meta app below). Without them the login only lasts about one hour.');
+    try { token = (await gget('oauth/access_token', { grant_type: 'fb_exchange_token', client_id: app.id, client_secret: app.secret, fb_exchange_token: fresh })).access_token; }
+    catch (e) { throw new Error(`Facebook did not accept the token with app ID ${app.id}. Check the App secret for that app (developers.facebook.com, App settings, Basic, Show) and that the token is new (they last about an hour). Facebook said: ${e.message.replace(/^Meta: /, '')}`); }
   }
   const pages = (await gget('me/accounts', { fields: 'id,name,access_token,instagram_business_account{id,username}', limit: '100', access_token: token })).data || [];
   if (!pages.length) throw new Error('No Facebook Page found. When making the token, choose the Page (and its Instagram account) in the pop-up.');
   const pick = pages.find(p => p.id === page_id) || pages.find(p => p.id === m.page_id) || pages.find(p => p.instagram_business_account) || pages[0];
   let info = { expires: -1, scopes: [] };
-  try { info = await inspect(pick.access_token, s.meta_app_id, s.meta_app_secret); } catch {}
+  try { info = await inspect(pick.access_token, app.id, app.secret); } catch {}
   const missing = info.scopes.length ? NEED.filter(x => !info.scopes.includes(x)) : [];
   await st.setAccount(pid, 'meta', {
     user_token: token, page_id: pick.id, page_name: pick.name, page_token: pick.access_token,
@@ -65,7 +87,7 @@ async function connect(pid, { user_token, page_id }) {
 }
 
 async function check(pid) {
-  const s = await st.settings(), m = await st.account(pid, 'meta');
+  const app = await appFor(pid), s = { meta_app_id: app.id, meta_app_secret: app.secret }, m = await st.account(pid, 'meta');
   if (!m.page_token) throw new Error('Instagram and Facebook are not connected for this profile.');
   try {
     await gget(m.page_id, { fields: 'id,name', access_token: m.page_token });
@@ -139,4 +161,4 @@ async function setThumb(ctx, videoId, token) {
   } catch { return 'Facebook chose its own thumbnail.'; }
 }
 
-module.exports = { connect, check, disconnect, postInstagram, postFacebook, caption };
+module.exports = { connect, check, disconnect, setOwnApp, appFor, postInstagram, postFacebook, caption };

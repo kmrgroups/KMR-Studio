@@ -69,16 +69,18 @@ Return ONLY JSON:
     if (!s.gemini_key) throw Object.assign(new Error('no Gemini key'), { busy: true });
     o = await gemini(s.gemini_key, parts);
   } catch (e) {
-    if (!s.groq_key || (/not valid|blocked/i.test(e.message) && !e.busy)) throw e;
+    if (!s.groq_key) throw e; // any Gemini problem: the Groq backup takes over when it is set up
     // Gemini busy or down: Groq listens to the sound and writes from what is said
     const groq = require('./groq');
     const words = [];
     for (const a of audios) { const t = await groq.transcribe(s.groq_key, a).catch(() => ''); if (t) words.push(t); }
     if (!words.length && !hint) throw new Error(e.message + ' (The backup AI, Groq, needs speech in the video or a few words in the title box.)');
     const said = words.length ? 'What is said in the video:\n<<<\n' + words.join('\n').slice(0, 5000) + '\n>>>\n' : 'The video has no speech.\n';
-    o = await groq.json(s.groq_key, `You are the social media editor for KMR Group. Write post text for a ${Math.round(total)}-second video for YouTube, Instagram Reels, Facebook, LinkedIn and X.
-${hint ? 'The owner says the video is about: ' + hint + '\n' : ''}${said}Write in ${lang}. Be accurate: use only what is said or what the owner says.
-Return ONLY JSON: {"title": "catchy, honest title under 80 characters", "description": "3 to 5 short sentences ending with a call to follow or comment", "hashtags": ["12 to 15 hashtags each starting with #"], "thumb_text": "2 to 4 punchy words in ${lang}"}`);
+    try {
+      o = await groq.json(s.groq_key, `You are the social media editor for KMR Group. Write post text for a ${Math.round(total)}-second video for YouTube, Instagram Reels, Facebook, LinkedIn and X.
+  ${hint ? 'The owner says the video is about: ' + hint + '\n' : ''}${said}Write in ${lang}. Be accurate: use only what is said or what the owner says.
+  Return ONLY JSON: {"title": "catchy, honest title under 80 characters", "description": "3 to 5 short sentences ending with a call to follow or comment", "hashtags": ["12 to 15 hashtags each starting with #"], "thumb_text": "2 to 4 punchy words in ${lang}"}`);
+    } catch (g) { throw new Error(e.message + ' The backup AI (Groq) did not work either: ' + g.message); }
     o.best_frame = Math.floor(frames.length / 3);
     via = 'groq';
   }

@@ -41,7 +41,7 @@ async function profile(id) {
   const p = (await profiles()).find(x => x.id === id);
   if (!p) return null;
   const acc = await kv.hallJ('acc:' + id);
-  return { ...p, yt: acc.yt || {}, meta: acc.meta || {}, li: acc.li || {}, x: acc.x || {} };
+  return { ...p, yt: acc.yt || {}, meta: acc.meta || {}, li: acc.li || {}, x: acc.x || {}, mapp: acc.mapp || {} };
 }
 async function allProfiles() {
   const list = await profiles();
@@ -50,7 +50,7 @@ async function allProfiles() {
   return list.map((p, i) => {
     const a = accs[i] || [], o = {};
     for (let k = 0; k < a.length; k += 2) { try { o[a[k]] = JSON.parse(a[k + 1]); } catch {} }
-    return { ...p, yt: o.yt || {}, meta: o.meta || {}, li: o.li || {}, x: o.x || {} };
+    return { ...p, yt: o.yt || {}, meta: o.meta || {}, li: o.li || {}, x: o.x || {}, mapp: o.mapp || {} };
   });
 }
 async function addProfile(name) {
@@ -116,6 +116,7 @@ function publicProfile(p) {
   const o = { id: p.id, name: p.name };
   for (const k of PKEYS) o[k] = { ok: connected(p, k), label: label(p, k), problem: problem(p, k) };
   o.youtube.own_keys = !!(p.yt.client_id && p.yt.client_secret);
+  o.facebook.own_app = p.mapp && p.mapp.app_id ? p.mapp.app_id : '';
   if (p.li.expires_at) o.linkedin.expires_at = p.li.expires_at;
   o.facebook.pages = p.meta.pages || [];
   return o;

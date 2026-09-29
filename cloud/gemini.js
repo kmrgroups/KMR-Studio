@@ -22,7 +22,10 @@ async function models(key, fresh) {
 }
 function friendly(status, msg) {
   if (/API key not valid|API_KEY_INVALID/i.test(msg)) return 'The Gemini key is not valid. Copy it again from aistudio.google.com/apikey and save it in Settings.';
-  if (/denied access|PERMISSION_DENIED|suspended/i.test(msg) || status === 403) return 'Google blocked this Gemini key. Make a new key with a personal @gmail.com account at aistudio.google.com/apikey.';
+  if (/has not been used|is disabled|SERVICE_DISABLED|not enabled/i.test(msg)) return 'The Gemini API is switched off in this key\'s Google project. Make the key at aistudio.google.com/apikey (that switches it on) and paste it in Settings. (Google said: ' + msg.slice(0, 160) + ')';
+  if (/expired/i.test(msg)) return 'This Gemini key has expired. Make a new one at aistudio.google.com/apikey and paste it in Settings.';
+  if (/referer|referrer|ip address|restricted|API_KEY_.*BLOCKED|blocked/i.test(msg)) return 'This Gemini key has restrictions (only some websites, apps or IP addresses may use it). Make a new key at aistudio.google.com/apikey without restrictions. (Google said: ' + msg.slice(0, 160) + ')';
+  if (/denied access|PERMISSION_DENIED|suspended/i.test(msg) || status === 403) return 'Google refused this Gemini key: ' + msg.slice(0, 200) + ' Make a new key at aistudio.google.com/apikey with a personal @gmail.com account.';
   if (/location is not supported/i.test(msg)) return 'Gemini is not available from this location.';
   if (status === 429 || /quota|exhausted/i.test(msg)) return 'The free Gemini limit is used up for now. Try again in a minute (or tomorrow if it is the daily limit).';
   return 'Gemini: ' + msg;
