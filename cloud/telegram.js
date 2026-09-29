@@ -54,11 +54,28 @@ async function ensureHook(base, force) {
   const want = base + '/api/telegram', key = want + '|' + s.telegram_token.slice(-8);
   if (!force && (await kv.getJ('tg_hook')) === key) return null;
   const info = await call('getWebhookInfo', {}, s.telegram_token).catch(() => null);
-  if (!info || info.url !== want || force) {
+  if (!info || info.url !== want || force === true) {
     await call('setWebhook', { url: want, secret_token: hookSecret(s.telegram_token), allowed_updates: ['message', 'callback_query'], drop_pending_updates: false }, s.telegram_token);
+    if (info && !info.url && s.telegram_chat_id) { // someone switched the bot off this studio: almost always the old laptop version
+      const last = Number(await kv.getJ('tg_stolen')) || 0;
+      await kv.setJ('tg_stolen', Date.now(), 7 * 86400);
+      if (Date.now() - last > 6 * 3600000) await send('⚠️ The KMR Studio program on your laptop is still running and is taking the Approve and Reject buttons (it answers "Video not found"). Close it on the laptop, and remove it from Windows start-up. KMR Studio now runs fully online.').catch(() => {});
+    }
   }
-  await kv.setJ('tg_hook', key, 86400);
+  await kv.setJ('tg_hook', key, 600); // checked again every 10 minutes
   return info;
+}
+// For the Setup page: is Telegram fully working?
+async function health(base) {
+  const s = await st.settings();
+  if (!s.telegram_token) return { state: 'none' };
+  if (!s.telegram_chat_id) return { state: 'start', bot: s.telegram_bot };
+  const want = base + '/api/telegram';
+  const info = await call('getWebhookInfo', {}, s.telegram_token).catch(e => ({ error: e.message }));
+  if (info.error) return { state: 'error', error: info.error };
+  const stolen = Number(await kv.getJ('tg_stolen')) || 0;
+  if (info.url !== want) { await ensureHook(base, 'check').catch(() => {}); return { state: 'laptop', bot: s.telegram_bot }; }
+  return { state: stolen && Date.now() - stolen < 86400000 ? 'laptop-recent' : 'ok', bot: s.telegram_bot, last_error: info.last_error_date && Date.now() / 1000 - info.last_error_date < 3600 ? info.last_error_message : '' };
 }
 
 // Sends the finished video (or its thumbnail and a watch link) with Approve and Reject buttons.
@@ -137,4 +154,4 @@ async function disconnect() {
   await st.saveSettings({ telegram_chat_id: '', telegram_bot: '' });
 }
 
-module.exports = { ensureHook, connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };
+module.exports = { health, ensureHook, connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };

@@ -1,6 +1,6 @@
 {
   "name": "kmr-studio",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "private": true,
   "description": "KMR Studio - upload, join and post videos to YouTube, Instagram, Facebook, LinkedIn and X",
   "main": "server.js",

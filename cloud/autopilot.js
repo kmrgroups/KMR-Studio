@@ -63,6 +63,7 @@ function dueSlots(s, now) {
 }
 async function tick(base) {
   const now = Date.now();
+  await require('./telegram').ensureHook(base, 'check').catch(() => {});
   const started = [];
   for (const s of await schedules()) {
     if (!s.enabled) continue;

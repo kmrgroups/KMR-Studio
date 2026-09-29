@@ -103,16 +103,17 @@ function route() {
   if (q.get('msg')) toast(q.get('msg'));
   if (q.get('err')) toast(q.get('err'), true);
   if (q.get('msg') || q.get('err')) history.replaceState(null, '', '#' + (page || 'post'));
-  S.page = ['post', 'autopilot', 'history', 'profiles', 'settings'].includes(page) ? page : 'post';
+  S.page = ['setup', 'post', 'autopilot', 'history', 'profiles', 'settings'].includes(page) ? page : 'post';
   render();
   if (S.page === 'history') loadJobs();
   if (S.page === 'autopilot') loadAuto();
+  if (S.page === 'setup') loadSetup();
 }
 window.addEventListener('hashchange', () => S.st?.authed && route());
 
 function activeCount() { return S.jobs.filter(j => j.status === 'making' || j.status === 'preparing' || j.status === 'posting' || j.status === 'review').length; }
 function render() {
-  const nav = [['post', 'Post', 'upload'], ['autopilot', 'Autopilot', 'spark'], ['history', 'History', 'clock'], ['profiles', 'Profiles', 'users'], ['settings', 'Settings', 'gear']];
+  const nav = [['setup', 'Setup', 'check'], ['post', 'Post', 'upload'], ['autopilot', 'Autopilot', 'spark'], ['history', 'History', 'clock'], ['profiles', 'Profiles', 'users'], ['settings', 'Settings', 'gear']];
   const count = activeCount();
   const link = ([k, l, i], cls) => `<a href="#${k}" class="${S.page === k ? 'on' : ''}">${icon(i)}<span>${l}</span>${k === 'history' && count ? `<span class="count">${count}</span>` : ''}</a>`;
   $('#app').innerHTML = `<div class="shell">
@@ -144,7 +145,7 @@ function pagePost() {
   const eachMany = S.mode === 'each' && n > 1;
   const autoOn = (S.st.settings.gemini_key || S.st.settings.groq_key) && S.st.settings.auto_text !== false;
   return `<div class="page-head"><div><p class="eyebrow">Upload and post</p><h1>Post your videos</h1><p>Add your Google Flow clips or any video. Post each one, or join them into one longer video.</p></div></div>
-  ${anyAcc ? '' : `<div class="banner"><span>Connect your accounts first, so KMR Studio can post for you.</span><a class="btn primary sm" href="#profiles">Connect accounts</a></div>`}
+  ${(() => { const [d, t] = setupScore(); return d < t ? `<div class="banner"><span>Setup: <b>${d} of ${t}</b> steps done. The Setup page walks you through the rest.</span><a class="btn primary sm" href="#setup">Open Setup</a></div>` : ''; })()}
   <section class="panel">
     <div class="panel-head"><div><h2><span class="step-no">1</span>Add videos</h2><p>One video, or several short clips to post separately or <b>join into one longer video</b>.</p></div></div>
     <label class="drop" id="drop"><input type="file" id="files" accept="video/*,.mp4,.mov,.m4v,.webm" multiple hidden>
@@ -469,7 +470,7 @@ function profileCard(p) {
   // Meta
   const open = S.open[p.id + ':meta'];
   const pages = p.facebook.pages || [];
-  const metaBody = open ? `<p class="small muted" style="margin-top:0">In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>: choose your Meta app, add the permissions <code>pages_show_list</code> <code>pages_manage_posts</code> <code>pages_read_engagement</code> <code>instagram_basic</code> <code>instagram_content_publish</code>, press <b>Generate Access Token</b>, pick the Page, copy the token.</p>
+  const metaBody = open ? `<p class="small muted" style="margin-top:0">In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>: choose your Meta app, add the permissions <code>pages_show_list</code> <code>pages_manage_posts</code> <code>pages_read_engagement</code> <code>instagram_basic</code> <code>instagram_content_publish</code>, press <b>Generate Access Token</b>. In the Facebook window press <b>Edit settings</b> (not Continue), choose <b>Opt in to current Pages only</b> and <b>tick this profile's Page</b> and its Instagram. Copy the token.</p>
     <label class="field"><span class="label">Access token</span><textarea id="tok-${p.id}" rows="3" placeholder="EAA…" spellcheck="false"></textarea></label>
     ${pages.length > 1 ? `<label class="field" style="margin-top:10px"><span class="label">Facebook Page</span><select id="page-${p.id}">${pages.map(x => `<option value="${esc(x.id)}" ${x.name === p.facebook.label ? 'selected' : ''}>${esc(x.name)}${x.ig ? ' (Instagram @' + esc(x.ig) + ')' : ''}</option>`).join('')}</select></label>` : ''}
     <details class="help" ${p.facebook.own_app ? 'open' : ''}><summary>This profile's own Meta app (only if this person made their own app)</summary>
@@ -579,7 +580,7 @@ function pageSettings() {
   <p class="muted small">KMR Studio ${esc(S.st.version)} · runs on Vercel (free) · videos are deleted from storage once they are posted.</p>`;
 }
 document.addEventListener('click', e => {
-  const t = e.target.closest('button'); if (!t || S.page !== 'settings') return;
+  const t = e.target.closest('button'); if (!t || !['settings', 'setup'].includes(S.page)) return;
   if (t.hasAttribute('data-save')) busy(t, async () => {
     const patch = {};
     $$('[data-key]', t.closest('.panel')).forEach(i => { if (i.type === 'checkbox') { patch[i.dataset.key] = i.checked; return; } if (i.value !== '' || !/secret|key$/.test(i.dataset.key) || i.dataset.key === 'yt_privacy') patch[i.dataset.key] = i.value; });
@@ -714,6 +715,103 @@ document.addEventListener('click', e => {
   if (t.hasAttribute('data-ap-test')) busy(t, async () => toast((await api('/veo/test', { body: {} })).message));
 });
 
-const PAGES = { post: pagePost, autopilot: pageAutopilot, history: pageHistory, profiles: pageProfiles, settings: pageSettings };
+// ---------- Setup: every setting in one guided list ----------
+function setupScore() {
+  const s = S.st.settings, profs = S.st.profiles || [];
+  const checks = [!!s.telegram_chat_id, !!s.gemini_key, !!s.yt_client_id, !!s.meta_app_id, profs.some(p => PL.some(([k]) => p[k].ok))];
+  return [checks.filter(Boolean).length, checks.length];
+}
+async function loadSetup() {
+  try { S.setup = await api('/setup'); } catch (e) { S.setup = { telegram: { state: 'error', error: e.message } }; }
+  if (S.page === 'setup') rerenderMain();
+}
+function pageSetup() {
+  const s = S.st.settings, profs = S.st.profiles || [], h = S.setup || {}, tg = h.telegram || {};
+  const cb = S.st.callback;
+  const f = (k, label, secret, ph) => `<label class="field"><span class="label">${label}${secret && s[k] ? ' (saved)' : ''}</span><input data-key="${k}" value="${secret ? '' : esc(s[k] || '')}" placeholder="${secret && s[k] ? 'Saved: leave empty to keep it' : esc(ph || '')}" autocomplete="off" spellcheck="false"></label>`;
+  const save = '<div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div>';
+  const pill = st => st === 'ok' ? '<span class="pill ok"><i class="dot"></i>Done</span>' : st === 'bad' ? '<span class="pill bad"><i class="dot"></i>Needs fixing</span>' : st === 'opt' ? '<span class="pill"><i class="dot"></i>Optional</span>' : '<span class="pill run"><i class="dot"></i>To do</span>';
+  let n = 0;
+  const step = (st, title, why, body) => `<details class="panel setup-step" ${st === 'ok' || st === 'opt' ? '' : 'open'}><summary><span class="step-no">${++n}</span><span class="setup-title"><b>${title}</b><span class="muted small">${why}</span></span>${pill(st)}</summary><div class="setup-body">${body}</div></details>`;
+  const link = (u, t) => `<a href="${u}" target="_blank" rel="noopener">${t || u.replace(/^https:\/\//, '')}</a>`;
+
+  const laptop = tg.state === 'laptop' || tg.state === 'laptop-recent';
+  const tgState = !S.setup ? 'todo' : tg.state === 'ok' ? 'ok' : laptop || tg.state === 'error' ? 'bad' : 'todo';
+  const accCount = profs.reduce((a, p) => a + PL.filter(([k]) => p[k].ok).length, 0);
+  const credit = h.credit || [];
+
+  return `<div class="page-head"><div><p class="eyebrow">Setup</p><h1>Set up KMR Studio</h1><p>Go from top to bottom. Each step says <b>what it is for</b> and <b>exactly what to click</b>. Green "Done" means you never need to touch it again.</p></div>
+    <button class="btn sm" data-setup-reload>${icon('refresh')}Check again</button></div>
+
+  ${step(laptop ? 'bad' : 'ok', 'Close the old laptop program', laptop ? 'It is still running and steals your Telegram buttons ("Video not found").' : 'KMR Studio now runs online. The old laptop program must stay closed.', `
+    <p>KMR Studio works fully online now, even when the laptop is off. The old program on the laptop uses the same Telegram bot, so when it runs, your Approve button goes to the laptop and says <b>"Video not found"</b>.</p>
+    <ol class="steps"><li>On the laptop, close the black <b>KMR Studio</b> (or <b>Lumen Studio</b>) window.</li>
+      <li>Press <b>Ctrl + Shift + Esc</b> (Task Manager). If you see <b>Node.js JavaScript Runtime</b>, click it and press <b>End task</b>.</li>
+      <li>Stop it starting again: press <b>Windows + R</b>, type <code>shell:startup</code>, press Enter, and delete any <b>KMR Studio</b> or <b>Lumen Studio</b> shortcut in that folder.</li>
+      <li>Come back here and press <b>Check again</b> (top right). This step turns green.</li></ol>`)}
+
+  ${step(tgState, 'Telegram: approve from your phone', 'Every new video comes to your phone with Approve and Reject buttons.', `
+    ${tg.state === 'error' ? `<p class="err small">${esc(tg.error)}</p>` : ''}
+    <ol class="steps"><li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code>, give it any name, and copy the <b>token</b> it sends (looks like <code>123456:AA…</code>). Already have a bot? Skip this.</li>
+      <li>Paste the token below and press <b>Connect</b>.</li>
+      <li>Press <b>Open Telegram and tap Start</b>. In the chat that opens, tap <b>Start</b>. Then press <b>I tapped Start</b>.</li>
+      <li>Press <b>Send a test</b> and tap the button in Telegram. It must answer <b>"Buttons work"</b>.</li></ol>
+    <div class="form-grid"><label class="field"><span class="label">Bot token${s.telegram_token ? ' (saved' + (tg.bot ? ': @' + esc(tg.bot) : '') + ')' : ''}</span><input id="tg-token" placeholder="${s.telegram_token ? 'Saved: leave empty to keep it' : '123456789:AA…'}" autocomplete="off" spellcheck="false"></label></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-tg="connect">${s.telegram_chat_id ? 'Connect again' : 'Connect'}</button>${S.tgLink ? `<a class="btn sm" href="${esc(S.tgLink)}" target="_blank" rel="noopener">Open Telegram and tap Start</a><button class="btn sm quiet" data-tg="check">I tapped Start</button>` : ''}${s.telegram_chat_id ? '<button class="btn sm" data-tg="test">Send a test</button>' : ''}</div>
+    <label class="check-row" style="margin-top:14px"><input type="checkbox" data-key="approve_default" ${s.approve_default !== false ? 'checked' : ''}> Ask me before posting (recommended)</label>
+    <div class="btn-row" style="margin-top:10px"><button class="btn sm" data-save>Save</button></div>`)}
+
+  ${step(s.gemini_key ? 'ok' : 'todo', 'AI writer (free)', 'Writes titles, captions, hashtags, thumbnails and Autopilot scripts.', `
+    <ol class="steps"><li>Open ${link('https://aistudio.google.com/apikey')} with your Gmail.</li><li>Press <b>Create API key</b>, then <b>Copy</b>.</li><li>Paste it below as <b>Gemini key</b> and press <b>Save</b>.</li>
+      <li>Backup (optional, free): ${link('https://console.groq.com/keys')}, <b>Create API Key</b>, paste as <b>Groq key</b>. It takes over when Gemini is busy.</li></ol>
+    <div class="form-grid">${f('gemini_key', 'Gemini key', true, 'AIza…')}${f('groq_key', 'Groq key (backup)', true, 'gsk_…')}</div>${save}`)}
+
+  ${step(s.yt_client_id && s.yt_client_secret ? 'ok' : 'todo', 'YouTube: Google app (once)', 'One Google app lets every profile connect its own channel.', `
+    <ol class="steps"><li>Open ${link('https://console.cloud.google.com/')} with <b>your</b> Gmail. Make a project (top left, <b>New project</b>).</li>
+      <li>Search <b>YouTube Data API v3</b>, open it, press <b>Enable</b>.</li>
+      <li>Open ${link('https://console.cloud.google.com/auth/overview', 'Google Auth Platform')}: press <b>Get started</b>, app name <b>KMR Studio</b>, your email, <b>External</b>, finish.</li>
+      <li><b>Clients</b>, <b>Create client</b>, type <b>TVs and Limited Input devices</b>, <b>Create</b>. Copy the <b>Client ID</b> and <b>Client secret</b> below and press <b>Save</b>.</li>
+      <li><b>Important:</b> ${link('https://console.cloud.google.com/auth/audience', 'Audience')}, <b>Test users</b>, <b>Add users</b>: add <b>every Gmail whose YouTube channel you will connect</b> (yours, Rithanya's…). Otherwise Google says "Access blocked".</li></ol>
+    <div class="form-grid">${f('yt_client_id', 'Client ID', false, '…apps.googleusercontent.com')}${f('yt_client_secret', 'Client secret', true, 'GOCSPX-…')}</div>${save}`)}
+
+  ${step(s.meta_app_id && s.meta_app_secret ? 'ok' : 'todo', 'Facebook and Instagram: Meta app (once)', 'Lets KMR Studio post Reels to Facebook Pages and Instagram.', `
+    <ol class="steps"><li>Open ${link('https://developers.facebook.com/apps')}, <b>Create app</b>, choose <b>Other</b>, then <b>Business</b>, name it <b>KMR Studio</b>.</li>
+      <li>In the app: <b>App settings</b>, <b>Basic</b>. Copy the <b>App ID</b>, press <b>Show</b> next to App secret and copy it. Paste both below and press <b>Save</b>.</li>
+      <li>Each Instagram must be a <b>Professional</b> account linked to a <b>Facebook Page</b> (Page settings, Linked accounts, Instagram).</li></ol>
+    <div class="form-grid">${f('meta_app_id', 'App ID', false, '1234567890')}${f('meta_app_secret', 'App secret', true)}</div>${save}`)}
+
+  ${step(accCount ? 'ok' : 'todo', 'Profiles: connect each channel and page', `${profs.length} profile${profs.length === 1 ? '' : 's'}, ${accCount} account${accCount === 1 ? '' : 's'} connected.`, `
+    <p>A <b>profile</b> is one person or brand (for example <b>Me</b> and <b>Rithanya Mithra</b>). Each profile connects <b>its own</b> YouTube, Facebook and Instagram.</p>
+    <div class="setup-profs">${profs.map(p => `<div class="setup-prof"><b>${esc(p.name)}</b><div class="tchips">${PL.map(([k, l]) => `<span class="tchip ${p[k].ok ? 'on' : 'off'}">${plBadge(k)}${l}${p[k].ok && p[k].label ? ` <small>${esc(p[k].label)}</small>` : ''}</span>`).join('')}</div></div>`).join('')}</div>
+    <p style="margin-top:14px"><b>YouTube</b> (in Profiles, press Connect):</p>
+    <ol class="steps"><li>A code appears. Press <b>Ctrl + Shift + N</b> (a private window, so the wrong Gmail is not used).</li>
+      <li>Open <b>google.com/device</b>, sign in with <b>that channel's Gmail</b>, type the code.</li>
+      <li>"Google hasn't verified this app": press <b>Continue</b>. Choose <b>the right channel</b>, press <b>Allow</b>. Back here press <b>Check now</b>.</li></ol>
+    <p><b>Facebook and Instagram</b> (in Profiles, press Connect):</p>
+    <ol class="steps"><li>Log in to Facebook with the account that <b>manages that Page</b>. Open ${link('https://developers.facebook.com/tools/explorer/', 'Graph API Explorer')}.</li>
+      <li>Right side: <b>Meta App</b> = your app. <b>Add a Permission</b>: <code>pages_show_list</code> <code>pages_manage_posts</code> <code>pages_read_engagement</code> <code>instagram_basic</code> <code>instagram_content_publish</code>.</li>
+      <li>Press <b>Generate Access Token</b>. In the window press <b>Edit settings</b> (not Continue), choose <b>Opt in to current Pages only</b>, <b>tick the Page</b>, tick its Instagram, then <b>Continue</b> and <b>Save</b>.</li>
+      <li>Copy the token, paste it in Profiles, press <b>Connect</b>. It must show the <b>right Page name</b>.</li></ol>
+    <div class="btn-row"><a class="btn primary sm" href="#profiles">${icon('users')}Open Profiles</a></div>`)}
+
+  ${step(credit.length ? 'ok' : 'opt', 'Real video clips for Autopilot (Google AI Pro)', credit.length ? credit.map(c => `Key ${c.n}: $${c.spent.toFixed(2)} of $${c.limit} this month`).join(' · ') : 'Optional. Without it Autopilot uses free AI pictures.', `
+    <ol class="steps"><li>With each Pro Gmail open ${link('https://developers.google.com/profile/benefits')} and press <b>Activate</b> on the Google Cloud credit.</li>
+      <li>Same Gmail: ${link('https://aistudio.google.com/apikey')}, <b>Create API key</b>, pick the project that has the credit.</li>
+      <li>Paste it in <b>Autopilot</b>, <b>Video credit</b>, press <b>Save</b> and <b>Test</b>.</li></ol>
+    <div class="btn-row"><a class="btn sm" href="#autopilot">${icon('spark')}Open Autopilot</a></div>`)}
+
+  ${step(h.schedules ? 'ok' : 'opt', 'Autopilot: videos made for you', h.schedules ? h.schedules + ' autopilot' + (h.schedules > 1 ? 's' : '') + ' set.' : 'Optional. Makes and posts videos at the times you choose.', `
+    <ol class="steps"><li>Open <b>Autopilot</b>, press <b>New autopilot</b>.</li><li>Write what the videos are about, pick language, time and the accounts under <b>Post to</b>, press <b>Save</b>.</li><li>Press <b>Make one now</b> to test. It arrives in Telegram for your OK.</li></ol>
+    <div class="btn-row"><a class="btn sm" href="#autopilot">${icon('spark')}Open Autopilot</a></div>`)}
+
+  <p class="muted small">LinkedIn and X are optional and are set in <a href="#settings">Settings</a> (return address: <code>${esc(cb)}</code>).</p>`;
+}
+document.addEventListener('click', e => {
+  if (S.page !== 'setup') return;
+  const t = e.target.closest('[data-setup-reload]');
+  if (t) busy(t, async () => { S.st = await api('/state'); await loadSetup(); toast('Checked.'); });
+});
+
+const PAGES = { setup: pageSetup, post: pagePost, autopilot: pageAutopilot, history: pageHistory, profiles: pageProfiles, settings: pageSettings };
 boot();
 })();
