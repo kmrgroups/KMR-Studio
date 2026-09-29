@@ -36,22 +36,7 @@ async function grabAudio(file, maxSec, dir, tag = 'a') {
   return fs.existsSync(f) && fs.statSync(f).size > 2000 ? f : null;
 }
 
-async function gemini(key, parts) {
-  let last = '';
-  for (const model of ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash']) {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.8, responseMimeType: 'application/json' } }),
-      signal: AbortSignal.timeout(70000)
-    }).catch(e => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 400 && /API key/i.test(j.error?.message || '')) throw new Error('The Gemini key is not valid. Copy it again from aistudio.google.com/apikey and save it in Settings.');
-    if (!r.ok) { last = j.error?.message || String(r.status); continue; }
-    const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-    try { return JSON.parse(text.replace(/^\s*```(json)?|```\s*$/g, '').trim()); } catch { last = 'unreadable answer'; }
-  }
-  throw new Error('Gemini could not look at the video right now (' + last + '). Try again in a minute, or type the text yourself.');
-}
+const gemini = (key, parts) => require('./gemini').json(key, parts);
 
 /**
  * Watches the video(s) and writes the text.

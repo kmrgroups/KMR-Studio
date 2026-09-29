@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.2.0';
+const VERSION = '2.2.1';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
