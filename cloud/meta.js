@@ -69,8 +69,21 @@ async function connect(pid, { user_token, page_id, own_app_id, own_app_secret })
     try { token = (await gget('oauth/access_token', { grant_type: 'fb_exchange_token', client_id: app.id, client_secret: app.secret, fb_exchange_token: fresh })).access_token; }
     catch (e) { throw new Error(`Facebook did not accept the token with app ID ${app.id}. Check the App secret for that app (developers.facebook.com, App settings, Basic, Show) and that the token is new (they last about an hour). Facebook said: ${e.message.replace(/^Meta: /, '')}`); }
   }
-  const pages = (await gget('me/accounts', { fields: 'id,name,access_token,instagram_business_account{id,username}', limit: '100', access_token: token })).data || [];
-  if (!pages.length) throw new Error('No Facebook Page found. When making the token, choose the Page (and its Instagram account) in the pop-up.');
+  const F = 'id,name,access_token,instagram_business_account{id,username}';
+  let pages = (await gget('me/accounts', { fields: F, limit: '100', access_token: token })).data || [];
+  if (!pages.length) {
+    // Pages owned through a Business portfolio are not listed there: ask Facebook which Pages the token was given
+    let d = {};
+    try { d = (await gget('debug_token', { input_token: token, access_token: `${app.id}|${app.secret}` })).data || {}; } catch {}
+    const ids = [...new Set((d.granular_scopes || []).filter(g => /^pages_/.test(g.scope)).flatMap(g => g.target_ids || []))];
+    for (const id of ids.slice(0, 20)) { try { const pg = await gget(id, { fields: F, access_token: token }); if (pg.access_token) pages.push(pg); } catch {} }
+    if (!pages.length) {
+      const miss = (d.scopes || []).length ? NEED.filter(x => !(d.scopes || []).includes(x)) : [];
+      throw new Error(miss.length
+        ? 'The token is missing these permissions: ' + miss.join(', ') + '. In Graph API Explorer add them under Permissions, press Generate Access Token again, and tick the Page.'
+        : 'Facebook gave this token no Page. Make sure the Facebook account you are logged in with is an admin of the Page, then press Generate Access Token and tick the Page in the pop-up.');
+    }
+  }
   const pick = pages.find(p => p.id === page_id) || pages.find(p => p.id === m.page_id) || pages.find(p => p.instagram_business_account) || pages[0];
   let info = { expires: -1, scopes: [] };
   try { info = await inspect(pick.access_token, app.id, app.secret); } catch {}
