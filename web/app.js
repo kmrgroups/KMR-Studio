@@ -145,10 +145,11 @@ function pagePost() {
   return `<div class="page-head"><div><p class="eyebrow">Upload and post</p><h1>Post your videos</h1><p>Add your Google Flow clips or any video. Post each one, or join them into one longer video.</p></div></div>
   ${anyAcc ? '' : `<div class="banner"><span>Connect your accounts first, so KMR Studio can post for you.</span><a class="btn primary sm" href="#profiles">Connect accounts</a></div>`}
   <section class="panel">
-    <div class="panel-head"><div><h2><span class="step-no">1</span>Add videos</h2><p>Pick one or many. They upload straight to your private storage.</p></div></div>
+    <div class="panel-head"><div><h2><span class="step-no">1</span>Add videos</h2><p>One video, or several short clips to post separately or <b>join into one longer video</b>.</p></div></div>
     <label class="drop" id="drop"><input type="file" id="files" accept="video/*,.mp4,.mov,.m4v,.webm" multiple hidden>
       <span class="big-ic">${icon('upload')}</span><b>Tap to choose videos</b><span class="muted small">or drop them here · MP4 or MOV · up to 600 MB each</span></label>
     ${n ? `<div class="clips">${S.clips.map((c, i) => clipRow(c, i, n)).join('')}</div>` : ''}
+    ${n === 1 ? `<div class="join-hint">${icon('join')}<span><b>Want one longer video?</b> Tap the box above and add more clips. Then choose <b>Join into one</b> and put them in order with the arrows.</span></div>` : ''}
     ${n > 1 ? `<div class="opts">
       <div class="opt-row"><span class="label">How</span><div class="seg" role="group" aria-label="How to post">
         <button data-mode="join" class="${S.mode === 'join' ? 'on' : ''}">Join into one</button>
@@ -198,7 +199,7 @@ function clipRow(c, i, n) {
     : c.status === 'failed' ? `<div class="meta err">${esc(c.error || 'Upload failed')}</div>` : `<div class="meta">${c.duration ? fmtDur(c.duration) + ' · ' : ''}${c.w ? c.w + '×' + c.h + ' · ' : ''}${fmtSize(c.size)}</div>`;
   return `<div class="clip ${c.status === 'failed' ? 'failed' : ''}" data-key="${c.key}">
     <span class="num">${i + 1}</span>
-    <video src="${c.url}#t=0.5" muted playsinline preload="metadata"></video>
+    <button class="clip-play" data-play="${c.key}" aria-label="Play ${esc(c.name)}"><video src="${c.url}#t=0.5" muted playsinline preload="metadata"></video><span class="play-ic">▶</span></button>
     <div class="info"><div class="name" title="${esc(c.name)}">${esc(c.name)}</div>${status}
       ${S.mode === 'each' && n > 1 && c.status !== 'failed' ? `<div class="title-in"><input data-title="${c.key}" maxlength="100" value="${esc(c.title || '')}" placeholder="Title: ${esc(baseName(c.name))}" aria-label="Title for video ${i + 1}"></div>` : ''}</div>
     <div class="acts">${n > 1 ? `<button class="btn icon quiet" data-move="-1" data-k="${c.key}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">${icon('up')}</button><button class="btn icon quiet" data-move="1" data-k="${c.key}" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">${icon('down')}</button>` : ''}
@@ -231,6 +232,7 @@ function bindPost() {
   $$('[data-ratio]').forEach(b => b.onclick = () => { S.ratio = b.dataset.ratio; rerenderMain(); });
   $$('[data-fit]').forEach(b => b.onclick = () => { S.fit = b.dataset.fit; rerenderMain(); });
   $$('[data-move]').forEach(b => b.onclick = () => { saveText(); const i = S.clips.findIndex(c => c.key === b.dataset.k), j = i + Number(b.dataset.move); [S.clips[i], S.clips[j]] = [S.clips[j], S.clips[i]]; rerenderMain(); });
+  $$('[data-play]').forEach(b => b.onclick = () => { const c = S.clips.find(x => x.key === b.dataset.play); if (c) player(c.url, c.name); });
   $$('[data-remove]').forEach(b => b.onclick = () => { saveText(); const c = S.clips.find(x => x.key === b.dataset.remove); if (!c) return; c.abort?.abort(); if (c.pathname) api('/upload/discard', { body: { pathnames: [c.pathname] } }).catch(() => {}); URL.revokeObjectURL(c.url); S.clips = S.clips.filter(x => x !== c); if (!S.clips.length) S.ai = freshAi(); rerenderMain(); });
   $$('[data-target]').forEach(i => i.onchange = () => { saveText(); i.checked ? S.targets.add(i.dataset.target) : S.targets.delete(i.dataset.target); rerenderMain(); });
   $$('[data-prof-all]').forEach(b => b.onclick = () => { saveText(); const p = S.st.profiles.find(x => x.id === b.dataset.profAll); const ids = PL.filter(([k]) => p[k].ok).map(([k]) => `${p.id}:${k}`); const all = ids.every(t => S.targets.has(t)); ids.forEach(t => all ? S.targets.delete(t) : S.targets.add(t)); rerenderMain(); });
@@ -248,6 +250,18 @@ function bindPost() {
   });
   maybePreview();
   $('[data-act="post"]').onclick = e => busy(e.currentTarget, doPost);
+}
+
+// Full-screen player for a video (a clip you picked, or a finished post).
+function player(src, title) {
+  const d = document.createElement('div');
+  d.className = 'player';
+  d.innerHTML = `<div class="player-box"><div class="player-head"><b>${esc(title || 'Preview')}</b><button class="btn icon quiet" aria-label="Close">${icon('x')}</button></div><video src="${esc(src)}" controls autoplay playsinline></video></div>`;
+  const close = () => { d.querySelector('video').pause(); d.remove(); document.removeEventListener('keydown', esc1); };
+  const esc1 = e => { if (e.key === 'Escape') close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest('.player-head button')) close(); };
+  document.addEventListener('keydown', esc1);
+  document.body.append(d);
 }
 
 function addFiles(list) {
@@ -275,7 +289,7 @@ function refreshClip(c) {
   el.replaceWith(fresh);
   bindPost();
 }
-const safeName = n => (String(n).normalize('NFKD').replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').slice(-60) || 'video.mp4');
+const safeName = n => (String(n).normalize('NFKD').replace(/[^\w.\-]+/g, '_').replace(/\.{2,}/g, '.').replace(/_+/g, '_').replace(/^[._]+/, '').slice(-60) || 'video.mp4');
 async function upload(c) {
   const pathname = 'up/' + Date.now().toString(36) + '-' + safeName(c.name);
   try {
@@ -438,7 +452,7 @@ document.addEventListener('click', e => {
 // ---------- Profiles ----------
 function pageProfiles() {
   const profs = S.st.profiles || [];
-  return `<div class="page-head"><div><p class="eyebrow">Profiles</p><h1>People and brands</h1><p>Each profile has its own YouTube, Instagram, Facebook, LinkedIn and X.</p></div>
+  return `<div class="page-head"><div><p class="eyebrow">Profiles</p><h1>People and brands</h1><p>A profile is one person or brand you post for. Each profile connects <b>its own</b> YouTube, Instagram, Facebook, LinkedIn and X here. The app keys in Settings are made once and serve every profile.</p></div>
     <button class="btn primary" data-act="add-prof">${icon('plus')}Add profile</button></div>
     ${profs.map(profileCard).join('')}`;
 }
@@ -514,7 +528,8 @@ function pageSettings() {
     <p class="muted small">${intro}</p>${steps.length ? `<ol class="steps small">${steps.map(x => `<li>${x}</li>`).join('')}</ol>` : ''}<div class="form-grid">${fields}</div>
     <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div></details>`;
   const cb = S.st.callback;
-  return `<div class="page-head"><div><p class="eyebrow">Settings</p><h1>App keys and options</h1><p>One-time keys shared by all profiles. The full step-by-step guide is in your setup guide.</p></div></div>
+  return `<div class="page-head"><div><p class="eyebrow">Settings</p><h1>App keys and options</h1><p>Everything here is for the whole studio, not for one profile.</p></div></div>
+  <div class="explain"><div><b>Settings (once, for everyone)</b><span>The keys that let KMR Studio talk to Google, Meta, LinkedIn and X; the AI; Telegram; your logo.</span></div><div><b>Profiles (per person or brand)</b><span>Which YouTube channel, Facebook Page, Instagram, LinkedIn and X each profile posts to. <a href="#profiles">Open Profiles</a></span></div></div>
   ${box('YouTube: Google keys', s.yt_client_id, 'Free. Lets every profile connect a YouTube channel with a short code.', ['<a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a>: make a project and enable <b>YouTube Data API v3</b>.', 'Credentials, <b>Create credentials</b>, OAuth client ID, type <b>TVs and Limited Input devices</b>.', 'Copy the Client ID and secret here.'], f('yt_client_id', 'Client ID') + f('yt_client_secret', 'Client secret', true))}
   ${box('Instagram and Facebook: Meta app', s.meta_app_id, 'Free. With the secret saved, Facebook and Instagram logins never expire.', ['<a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a>, your app (type Business).', 'App settings, Basic: copy the <b>App ID</b> and <b>App secret</b> here.'], f('meta_app_id', 'App ID') + f('meta_app_secret', 'App secret', true))}
   ${box('LinkedIn app', s.li_client_id, 'Free. Posts go to each person\'s own LinkedIn profile.', ['<a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">LinkedIn Developers</a>, your app, Products: add <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>.', `Auth tab, Authorized redirect URLs: add <code>${esc(cb)}</code>`, 'Copy the Client ID and secret here.'], f('li_client_id', 'Client ID') + f('li_client_secret', 'Client secret', true))}

@@ -16,8 +16,9 @@ const blob = () => blobMod || (blobMod = require('@vercel/blob'));
 function ready() { return fake() || !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID); }
 function need() { if (!ready()) throw new Error('Video storage is not connected. In Vercel, open the project, Storage, Create, Blob, choose Private, and connect it to this project.'); }
 
-const safeName = n => String(n || 'video.mp4').normalize('NFKD').replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').slice(-80) || 'video.mp4';
-const okPath = p => typeof p === 'string' && /^(up|out)\/[\w.\-/]+$/.test(p) && !p.includes('..');
+const safeName = n => String(n || 'video.mp4').normalize('NFKD').replace(/[^\w.\-]+/g, '_').replace(/\.{2,}/g, '.').replace(/_+/g, '_').slice(-80) || 'video.mp4';
+// safe storage names: up/... or out/..., letters, digits, _ . - only, and no '.' or '..' folder parts (dots inside a name are fine)
+const okPath = p => typeof p === 'string' && p.length < 400 && /^(up|out)\/[\w.\-/]+$/.test(p) && p.split('/').every(seg => seg && seg !== '.' && seg !== '..');
 
 // Called by the browser (through @vercel/blob/client uploadPresigned) to get a signed upload address.
 async function handleUpload(body, req) {
