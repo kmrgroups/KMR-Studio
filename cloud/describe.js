@@ -21,14 +21,12 @@ function fonts() {
 
 // Evenly spread frames (small JPEGs for the AI). Returns [{file, t}]
 async function grabFrames(file, duration, n, dir, tag = 'f') {
-  const out = [];
-  for (let i = 0; i < n; i++) {
+  const jobs = Array.from({ length: n }, (_, i) => {
     const t = Math.max(0, Math.min(duration - 0.2, duration * (i + 1) / (n + 1)));
     const f = path.join(dir, `${tag}${i}.jpg`);
-    await media.run(['-y', '-ss', t.toFixed(2), '-i', file, '-frames:v', '1', '-vf', 'scale=512:-2', '-q:v', '5', f], { timeout: 30000 }).catch(() => {});
-    if (fs.existsSync(f)) out.push({ file: f, t, src: file });
-  }
-  return out;
+    return media.run(['-y', '-ss', t.toFixed(2), '-i', file, '-frames:v', '1', '-vf', 'scale=448:-2', '-q:v', '6', f], { timeout: 30000 }).catch(() => {}).then(() => ({ file: f, t, src: file }));
+  });
+  return (await Promise.all(jobs)).filter(x => fs.existsSync(x.file));
 }
 async function grabAudio(file, maxSec, dir, tag = 'a') {
   const f = path.join(dir, tag + '.mp3');
@@ -47,15 +45,13 @@ async function analyze(clips, { hint = '', dir }) {
   const s = await st.settings();
   if (!s.gemini_key && !s.groq_key) throw new Error('Add a free Gemini key in Settings so the AI can write titles, captions and hashtags.');
   const total = clips.reduce((a, c) => a + c.info.duration, 0);
-  const per = Math.max(1, Math.min(4, Math.round(8 / clips.length)));
-  const frames = [];
-  for (const [k, c] of clips.entries()) frames.push(...await grabFrames(c.file, c.info.duration, clips.length === 1 ? 8 : per, dir, `c${k}f`));
-  const audios = [];
-  for (const [k, c] of clips.entries()) {
-    if (!c.info.acodec) continue;
-    const a = await grabAudio(c.file, Math.max(10, Math.round(120 / clips.length)), dir, `c${k}a`);
-    if (a) audios.push(a);
-  }
+  const per = Math.max(1, Math.min(3, Math.round(6 / clips.length)));
+  const [frameSets, audioList] = await Promise.all([
+    Promise.all(clips.map((c, k) => grabFrames(c.file, c.info.duration, clips.length === 1 ? 6 : per, dir, `c${k}f`))),
+    Promise.all(clips.map((c, k) => c.info.acodec ? grabAudio(c.file, Math.max(10, Math.round(90 / clips.length)), dir, `c${k}a`) : null))
+  ]);
+  const frames = frameSets.flat();
+  const audios = audioList.filter(Boolean);
   const lang = s.text_language || 'English';
   const parts = [{ text:
 `You are the social media editor for KMR Group. Watch these ${frames.length} frames (numbered 0 to ${frames.length - 1}, in time order) and listen to the sound of a ${Math.round(total)}-second video that will be posted on YouTube, Instagram Reels, Facebook, LinkedIn and X.

@@ -33,40 +33,48 @@ const busy = (status, msg) => status === 503 || status === 500 || /high demand|o
 const daily = msg => /per day|daily|PerDay/i.test(msg);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// One try with one model. Thinking is switched off (fastest); if a model refuses that setting, it is asked again without it.
+async function ask(key, model, parts, temperature, ms) {
+  const call = async cfg => {
+    const r = await fetch(`${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature, responseMimeType: 'application/json', ...cfg } }),
+      signal: AbortSignal.timeout(ms)
+    }).catch(e => ({ ok: false, status: 0, json: async () => ({ error: { message: /abort|timeout/i.test(e.message) ? 'took too long' : e.message } }) }));
+    return { r, j: await r.json().catch(() => ({})) };
+  };
+  let { r, j } = await call({ thinkingConfig: { thinkingBudget: 0 } });
+  if (r.status === 400 && /thinking/i.test(j.error?.message || '')) ({ r, j } = await call({}));
+  if (r.ok) {
+    const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    try { return { ok: true, value: JSON.parse(text.replace(/^\s*```(json)?|```\s*$/g, '').trim()) }; } catch { return { ok: false, status: 200, msg: 'unreadable answer' }; }
+  }
+  return { ok: false, status: r.status, msg: j.error?.message || String(r.status) };
+}
+
 // parts: Gemini content parts. Returns the parsed JSON answer.
-// When Google is busy it waits a moment, tries again, then moves to the next model (lite, older generation).
-async function json(key, parts, { temperature = 0.8, timeout = 60000, budget = 110000 } = {}) {
+// Asks the two best models at the same time and takes the first answer; if both are busy, asks the next ones.
+async function json(key, parts, { temperature = 0.8, timeout = 45000, budget = 90000 } = {}) {
   const until = Date.now() + budget;
   let list = await models(key);
   const errors = [];
-  let refreshed = false;
-  for (let i = 0; i < Math.min(list.length, 6) && Date.now() < until; i++) {
-    const model = list[i];
-    for (let attempt = 0; attempt < 2 && Date.now() < until; attempt++) {
-      const r = await fetch(`${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature, responseMimeType: 'application/json' } }),
-        signal: AbortSignal.timeout(Math.min(timeout, Math.max(5000, until - Date.now())))
-      }).catch(e => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) {
-        const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-        try { return JSON.parse(text.replace(/^\s*```(json)?|```\s*$/g, '').trim()); } catch { errors.push(model + ' gave an unreadable answer'); break; }
+  for (let round = 0; round < 3 && Date.now() < until; round++) {
+    const group = list.slice(round * 2, round * 2 + 2);
+    if (!group.length) break;
+    const ms = Math.min(timeout, Math.max(8000, until - Date.now()));
+    const tries = group.map(m => ask(key, m, parts, temperature, ms).then(x => x.ok ? x.value : Promise.reject(Object.assign(new Error(x.msg), x))));
+    try { return await Promise.any(tries); }
+    catch (agg) {
+      const errs = agg.errors || [];
+      for (const e of errs) {
+        if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|denied access/i.test(e.message)) throw new Error(friendly(e.status, e.message));
+        errors.push(friendly(e.status, e.message));
       }
-      const msg = j.error?.message || String(r.status);
-      if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|denied access/i.test(msg)) throw new Error(friendly(r.status, msg));
-      errors.push(friendly(r.status, msg));
-      if (gone(r.status, msg)) {
-        if (!refreshed) { refreshed = true; list = await models(key, true); i = -1; }
-        break;
-      }
-      if (busy(r.status, msg) || r.status === 0) { await sleep(attempt ? 1000 : 2500); continue; }
-      if (r.status === 429 && !daily(msg)) { await sleep(4000); continue; }
-      break; // daily limit or a bad request: try the next model
+      if (errs.some(e => gone(e.status, e.message)) && round === 0) { list = await models(key, true); round = -1; continue; }
     }
   }
-  const e = new Error((errors.find(x => /high demand|busy|limit/i.test(x)) || errors[0] || 'Gemini did not answer'));
-  e.busy = errors.some(x => /high demand|overloaded|unavailable|limit/i.test(x));
+  const e = new Error(errors.find(x => /high demand|busy|limit|too long/i.test(x)) || errors[0] || 'Gemini did not answer');
+  e.busy = errors.some(x => /high demand|overloaded|unavailable|limit|too long/i.test(x));
   throw e;
 }
 

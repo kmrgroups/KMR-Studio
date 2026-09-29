@@ -14,14 +14,14 @@ async function preview(b) {
   if (!list.length) throw new Error('Upload a video first.');
   const dir = media.tmpDir('pv');
   try {
-    const clips = [];
-    let total = 0;
-    for (const [k, p] of list.entries()) {
+    const got = await Promise.all(list.map(async (p, k) => {
       const f = path.join(dir, `v${k}` + (path.extname(p).toLowerCase().replace(/[^.\w]/g, '') || '.mp4'));
-      total += await files.download(p, f);
-      if (total > 250 * 1024 * 1024) throw new Error('These videos are too large to preview together. Post them and the AI writes the text while posting.');
-      clips.push({ file: f, info: await media.probe(f).catch(() => { throw new Error(`Video ${k + 1} is not a video file KMR Studio can read.`); }) });
-    }
+      const size = await files.download(p, f);
+      const info = await media.probe(f).catch(() => { throw new Error(`Video ${k + 1} is not a video file KMR Studio can read.`); });
+      return { file: f, info, size };
+    }));
+    if (got.reduce((a, c) => a + c.size, 0) > 250 * 1024 * 1024) throw new Error('These videos are too large to preview together. Post them and the AI writes the text while posting.');
+    const clips = got;
     const first = clips[0].info;
     const [W, H] = RATIO[b.ratio] || describe.thumbSize(first.w, first.h);
     const s = await st.settings();
@@ -41,11 +41,10 @@ async function preview(b) {
       picks = chosen.map(i => ({ clip: Math.max(0, clips.findIndex(c => c.file === frames[i].src)), t: frames[i].t }));
     }
     const words = String(b.thumb_text ?? a?.thumb_text ?? String(b.hint || baseName(list[0])).split(/\s+/).slice(0, 4).join(' ')).slice(0, 40);
-    const thumbs = [];
-    for (const [k, p] of picks.entries()) {
+    const thumbs = await Promise.all(picks.map(async (p, k) => {
       const out = await describe.thumbnail(clips[p.clip].file, p.t, words, W, H, path.join(dir, `th${k}.jpg`));
-      thumbs.push('data:image/jpeg;base64,' + fs.readFileSync(out).toString('base64'));
-    }
+      return 'data:image/jpeg;base64,' + fs.readFileSync(out).toString('base64');
+    }));
     return { title: a?.title || '', description: a?.description || '', hashtags: a?.hashtags || [], thumb_text: words, thumbs, picks, warn };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }

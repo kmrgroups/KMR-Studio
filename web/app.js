@@ -162,7 +162,7 @@ function pagePost() {
   <section class="panel">
     <div class="panel-head"><div><h2><span class="step-no">2</span>Title, caption and thumbnail</h2><p>${eachMany ? (autoOn ? 'The AI watches each video and writes its own title, caption, hashtags and thumbnail while posting. Type below only what you want on all of them.' : 'Each video uses its own title (above). The caption and hashtags go on all of them.') : 'The AI watches your video and fills these in. Change anything you like.'}</p></div>
       ${eachMany ? '' : `<button class="btn sm" data-act="ai" ${ready && !up && S.ai.state !== 'running' ? '' : 'disabled'}>${icon('spark')}${S.ai.state === 'done' ? 'Write again' : 'Write with AI'}</button>`}</div>
-    ${S.ai.state === 'running' ? `<div class="ai-note"><span class="spin"></span> AI is watching your video and writing the title, caption, hashtags and thumbnails… (about 20 seconds)</div>` : S.ai.warn ? `<div class="ai-note warn">${esc(S.ai.warn)}${/Gemini key/.test(S.ai.warn) ? ' <a href="#settings">Open Settings</a>' : ''}</div>` : ''}
+    ${S.ai.state === 'running' ? `<div class="ai-note"><span class="spin"></span><span>AI is watching your video… <b id="ai-secs">${Math.round((Date.now() - (S.ai.started || Date.now())) / 1000)}</b>s. No need to wait: you can press <b>Post now</b> and it finishes the text and thumbnail while posting.</span></div>` : S.ai.warn ? `<div class="ai-note warn">${esc(S.ai.warn)}${/Gemini key/.test(S.ai.warn) ? ' <a href="#settings">Open Settings</a>' : ''}</div>` : ''}
     <div class="form-grid">
       ${S.mode === 'each' && n > 1 ? '' : `<label class="field wide"><span class="label">Title</span><input id="t-title" maxlength="100" value="${esc(S.text.title)}" placeholder="${esc(S.clips[0] ? baseName(S.clips[0].name) : 'What is this video about?')}"></label>`}
       <label class="field wide"><span class="label">Caption</span><textarea id="t-desc" maxlength="4500" placeholder="A few lines about the video, and a call to follow">${esc(S.text.description)}</textarea></label>
@@ -315,8 +315,10 @@ function maybePreview() {
 }
 async function runPreview(force) {
   const key = previewKey();
-  S.ai = { ...S.ai, state: 'running', key, warn: '' };
+  S.ai = { ...S.ai, state: 'running', key, warn: '', started: Date.now() };
   rerenderMain();
+  clearInterval(S.aiTick);
+  S.aiTick = setInterval(() => { const el = $('#ai-secs'); if (S.ai.state !== 'running') return clearInterval(S.aiTick); if (el) el.textContent = Math.round((Date.now() - S.ai.started) / 1000); }, 1000);
   try {
     const r = await api('/work', { body: { kind: 'preview', pathnames: previewPaths(), ratio: previewRatio(), hint: S.text.title || '' } });
     if (S.ai.key !== key) return; // the videos changed meanwhile
