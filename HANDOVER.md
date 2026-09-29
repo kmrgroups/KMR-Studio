@@ -1,5 +1,17 @@
 # KMR Studio (formerly Lumen Studio): project handover
 
+> **2.0.0 (current): KMR Studio Cloud.** The owner does not want a PC running, and wants it free with no card. He narrowed the scope to: upload Google Flow videos and post them, join several short videos into one longer video and post it, and post to one profile or several. That runs fully on Vercel Hobby:
+> - `web/` (vanilla SPA), `api/main.js` (router; `vercel.json` rewrites `/api/*` and `/oauth/callback` to it), `api/work.js` (maxDuration 300, answers 202 and continues with `waitUntil`).
+> - `cloud/kv.js`: Upstash Redis REST (`KV_REST_API_URL`/`TOKEN`). Keys `kmr:settings`, `kmr:profiles`, `kmr:acc:<pid>` (hash yt/meta/li/x), `kmr:job:<id>`, `kmr:jobs` (list), `kmr:res:<id>` (hash target -> result), locks.
+> - `cloud/files.js`: private Vercel Blob. Browser uploads with `uploadPresigned` (bundled into `web/vendor/blob-client.js` with esbuild) against `/api/upload` (`handleUploadPresigned`). Signed GET links for Instagram/Facebook and previews.
+> - `cloud/media.js`: ffmpeg-static; probe by parsing `ffmpeg -i`; single MP4 H.264/AAC used as is; same-format clips concat with `-c copy`; mixed sizes one-pass filter_complex (blur/bars/crop), ultrafast.
+> - `cloud/jobs.js`: create, prepare, one run per target. Platform posters return `{done}` or `{wait: state}`; waits hand over to a fresh run (Instagram and LinkedIn processing, X media processing).
+> - Login: env `KMR_PASSWORD`, HMAC cookie. Test: `dev/server.js` simulates Vercel, Blob and Redis (`KMR_FAKE_DIR`).
+> - Deleted videos: once all targets post, and failed ones after 7 days (storage is 1 GB).
+>
+> Everything below describes the older PC version (1.x), still in the repo but not deployed.
+
+
 Read this first if you are continuing development (a new Claude chat or another developer).
 
 ## What it is

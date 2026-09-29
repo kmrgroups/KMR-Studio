@@ -1,10 +1,44 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "",
   "buildCommand": "",
-  "outputDirectory": "door",
+  "outputDirectory": "web",
+  "functions": {
+    "api/main.js": {
+      "maxDuration": 60
+    },
+    "api/work.js": {
+      "maxDuration": 300,
+      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
+    }
+  },
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/api/door?__door=$1" }
+    {
+      "source": "/oauth/callback",
+      "destination": "/api/main?__p=oauth/callback"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/main?__p=:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
+    }
   ]
 }

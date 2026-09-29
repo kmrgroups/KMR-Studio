@@ -1,47 +1,31 @@
-# KMR Studio
+# KMR Studio (cloud)
 
-Make videos automatically (script, voice-over in 70+ languages, visuals, music, subtitles), post your own videos, and publish to YouTube, Instagram, Facebook, LinkedIn and X for several people or brands. Everything is free except X (paid by X) and the optional Veo engine (paid by Google).
+Upload your Google Flow clips (or any video), join several into one longer video if you like, and post to YouTube, Instagram, Facebook, LinkedIn and X, for one profile or many at once. Runs completely in the cloud on Vercel's free plan: no PC, no card.
 
-The full step-by-step setup guide is the separate "KMR Studio setup guide" document. This page is the short version.
+## How it works
+- **web/**: the app (phone and desktop). **api/main.js**: sign-in, profiles, settings, posts. **api/work.js**: background work (joining with FFmpeg, then one run per account).
+- Videos go from your phone straight into a **private Vercel Blob** store (free: 1 GB). A video is deleted from storage once every account has posted it.
+- Settings, profiles and post status live in **Upstash Redis** (free: 500,000 commands a month).
+- Instagram and Facebook download the video through a short-lived signed link. YouTube, LinkedIn and X get it uploaded from the function.
 
-## 1. Start it on your Windows PC (10 minutes, once)
-1. Unzip `kmr-studio.zip` to `C:\KMR-Studio`.
-2. Double-click **START.bat**. The first start downloads Node.js, FFmpeg and the voice engine into the `runtime` folder (5 to 10 minutes, once). Your browser then opens `http://localhost:3456`.
-3. Set your password. Keep the black window open or minimised; closing it stops the studio.
-4. Double-click **START-WITH-WINDOWS.bat** once, so the studio starts whenever you log in.
-5. In Windows power settings, set **Sleep: Never** (when plugged in), so Autopilot and your phone access keep working.
+## Set up on Vercel (once, about 10 minutes)
+1. Import this repo in Vercel (**Add New, Project**, **KMR-Studio**, **Deploy**). Nothing to change.
+2. Project **Storage**, **Create Database**, **Upstash for Redis**, Free, **Create**, connect it to this project.
+3. Project **Storage**, **Create**, **Blob**, access **Private**, **Create**, connect it to this project.
+4. Project **Settings, Environment Variables**: `KMR_PASSWORD` = the password you want to sign in with.
+5. **Deployments**, three dots on the newest, **Redeploy**.
+6. **Settings, Domains**: add `studio.kmr-groups.com` (one CNAME record `studio` -> `cname.vercel-dns.com` at Squarespace if Vercel asks).
+7. Open studio.kmr-groups.com, sign in, then **Settings** (app keys) and **Profiles** (connect accounts).
 
-## 2. Open it from anywhere: studio.kmr-groups.com (free, once)
-Open **Settings, Online access** and follow the 4 steps on screen:
-1. Install **Tailscale** (free app; the button links to the download).
-2. **Sign in** to Tailscale with Google (the button opens the page).
-3. Press **Go online**, and allow it once in Tailscale. You get a fixed https address like `https://kmr-pc.tail1234.ts.net`.
-4. Press **Copy address**. In Vercel, open project **KMR-Studio**, go to **Settings, Environment Variables**, and add `KMR_STUDIO_URL` with that address. Then **Redeploy** and press **Test**.
+LinkedIn and X apps need the return address `https://studio.kmr-groups.com/oauth/callback`.
 
-The PC must stay on.
+## Limits of the free plan
+- One background run lasts at most 5 minutes. Clips of the same size (like Flow clips) join instantly; different sizes are re-encoded at about a third of their length.
+- Up to 600 MB per upload, 1 GB stored at a time (videos are removed after posting).
+- X charges about US$0.02 per video post. YouTube allows about 6 uploads a day per Google project.
 
-### The web door (this repo on Vercel, once)
-This GitHub repo **KMR-Studio** is also a tiny Vercel project: `api/door.js` forwards every visit to the studio PC, and `vercel.json` sends all paths to it. The studio program itself never runs on Vercel.
-1. vercel.com, **Add New, Project**, import **KMR-Studio**, press **Deploy** (no settings to change).
-2. Project **Settings, Domains**, add `studio.kmr-groups.com`. Vercel shows one **CNAME** record (`studio` → `cname.vercel-dns.com`). Add it where the kmr-groups.com DNS is managed (Squarespace **Domains, DNS settings**; if Vercel says the domain already uses Vercel's nameservers, it is added automatically).
-3. Add `KMR_STUDIO_URL` as in step 4 above.
+## Local test
+`npm install`, then `npm run dev` (password `test1234`). Storage and database are simulated in `.devdata/`.
 
-It is completely separate from the company website repo.
-
-## 3. Follow the Setup checklist
-**Settings, Setup checklist** lists every remaining step with a button that opens the right place. That covers the logo, script writer, Telegram, app keys, profiles and accounts, default "Post to" and music.
-
-## Updating
-**Settings, Updates and help, Upload update zip.** Videos, profiles, keys and settings are kept.
-
-## Where things are stored
-- `data/` holds your database, videos, music and logo. Updates never touch it. Back it up if you move computers.
-- `runtime/` holds the downloaded tools (Node.js, FFmpeg, voice engine).
-
-## If something goes wrong
-- The black window shows what the studio is doing. Closing and double-clicking START.bat restarts it.
-- For a video problem, open it in the Library, then **Activity**. That text says exactly what failed.
-- For an account problem, go to **Connections**, open the account and press **Check**.
-
-## Advanced: a Linux server instead of the PC
-`install.sh` installs KMR Studio as a service on Ubuntu. Tailscale works there too (`sudo tailscale up`, then Go online).
+## The older PC version
+`server.js`, `lib/`, `public/` and the `.bat` files are the Windows PC version (1.x) with AI video making and Autopilot. They are not deployed to Vercel.

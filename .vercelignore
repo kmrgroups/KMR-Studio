@@ -3,6 +3,8 @@ runtime
 .venv
 lib
 public
+dev
+server.js
 *.bat
 *.ps1
 *.sh

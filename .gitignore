@@ -4,3 +4,4 @@ runtime/
 node_modules/
 *.zip
 .vercel
+.devdata/
