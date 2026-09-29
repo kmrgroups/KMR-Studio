@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.4.0';
+const VERSION = '2.4.1';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -25,6 +25,7 @@ async function state(req) {
   out.settings = st.publicSettings(s);
   out.profiles = (await st.allProfiles()).map(st.publicProfile);
   out.callback = H.base(req) + '/oauth/callback';
+  if (s.telegram_token) await require('../cloud/telegram').ensureHook(H.base(req)).catch(() => {}); // repairs button presses (checked once a day)
   return out;
 }
 
@@ -107,7 +108,7 @@ module.exports = async function handler(req, res) {
     if ((m = /^\/telegram\/(connect|test|disconnect)$/.exec(path)) && M === 'POST') {
       const tg = require('../cloud/telegram');
       if (m[1] === 'connect') return H.send(res, 200, await tg.connect(base, b.token));
-      if (m[1] === 'test') return H.send(res, 200, { message: await tg.test() });
+      if (m[1] === 'test') return H.send(res, 200, { message: await tg.test(base) });
       await tg.disconnect(); return H.send(res, 200, { ok: true });
     }
     if ((m = /^\/posts\/([\w]+)\/(approve|reject)$/.exec(path)) && M === 'POST') { m[2] === 'approve' ? await jobs.approve(m[1], base) : await jobs.reject(m[1]); return H.send(res, 200, { ok: true }); }

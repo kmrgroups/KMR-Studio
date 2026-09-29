@@ -47,10 +47,25 @@ const targetsText = async job => {
 };
 const keyboard = id => ({ inline_keyboard: [[{ text: '✅ Approve and post', callback_data: 'ap:' + id }, { text: '❌ Reject', callback_data: 'rj:' + id }]] });
 
+// Makes sure Telegram sends button presses to this studio (a bot brought over from the laptop was never told).
+async function ensureHook(base, force) {
+  const s = await st.settings();
+  if (!s.telegram_token || !base) return null;
+  const want = base + '/api/telegram', key = want + '|' + s.telegram_token.slice(-8);
+  if (!force && (await kv.getJ('tg_hook')) === key) return null;
+  const info = await call('getWebhookInfo', {}, s.telegram_token).catch(() => null);
+  if (!info || info.url !== want || force) {
+    await call('setWebhook', { url: want, secret_token: hookSecret(s.telegram_token), allowed_updates: ['message', 'callback_query'], drop_pending_updates: false }, s.telegram_token);
+  }
+  await kv.setJ('tg_hook', key, 86400);
+  return info;
+}
+
 // Sends the finished video (or its thumbnail and a watch link) with Approve and Reject buttons.
 async function review(job, base) {
   const s = await st.settings();
   if (!s.telegram_token || !s.telegram_chat_id) return false;
+  await ensureHook(base).catch(() => {});
   const v = job.video;
   const caption = `🎬 <b>${esc(job.title)}</b>\n\n${esc(String(job.description || '').slice(0, 500))}\n${esc((job.hashtags || []).slice(0, 12).join(' '))}\n\n⏱ ${Math.round(v.duration)}s · ${v.w}x${v.h}\n📤 ${esc(await targetsText(job))}`.slice(0, 1024);
   const watch = await files.signedUrl(v.pathname, 24 * 60);
@@ -102,6 +117,7 @@ async function handleUpdate(req, update, base) {
     try {
       if (act === 'ap') { await jobs.approve(id, base); text = '✅ Approved. Posting now; you will get the links here.'; }
       else if (act === 'rj') { await jobs.reject(id); text = '❌ Rejected. Nothing was posted.'; }
+      else if (act === 'ping') text = '✅ Buttons work.';
       else text = 'Done.';
     } catch (e) { text = e.message; }
     await call('answerCallbackQuery', { callback_query_id: q.id, text: text.slice(0, 190) }).catch(() => {});
@@ -109,10 +125,11 @@ async function handleUpdate(req, update, base) {
   }
 }
 
-async function test() {
+async function test(base) {
   if (!await ready()) throw new Error('Press Connect and then Start in Telegram first.');
-  await send('👋 Test from KMR Studio: Telegram works.');
-  return 'Sent. Check Telegram.';
+  const info = await ensureHook(base, true);
+  await send('👋 Test from KMR Studio: Telegram works, and the Approve and Reject buttons are connected.', { reply_markup: { inline_keyboard: [[{ text: '👍 Press me to test the buttons', callback_data: 'ping' }]] } });
+  return 'Sent. In Telegram, press the test button: it should answer "Buttons work".' + (info && info.last_error_message ? ' (Telegram had reported: ' + info.last_error_message + ' — now repaired.)' : '');
 }
 async function disconnect() {
   const s = await st.settings();
@@ -120,4 +137,4 @@ async function disconnect() {
   await st.saveSettings({ telegram_chat_id: '', telegram_bot: '' });
 }
 
-module.exports = { connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };
+module.exports = { ensureHook, connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };
