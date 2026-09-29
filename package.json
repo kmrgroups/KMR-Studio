@@ -1,0 +1,9 @@
+{
+  "name": "kmr-studio",
+  "version": "1.9.1",
+  "private": true,
+  "description": "KMR Studio - automatic AI video maker and publisher",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" }
+}

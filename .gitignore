@@ -1,0 +1,6 @@
+data/
+runtime/
+.venv/
+node_modules/
+*.zip
+.vercel
