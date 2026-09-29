@@ -3,7 +3,7 @@
 const st = require('./state');
 const kv = require('./kv');
 
-const KEYS = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb'];
+const KEYS = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb'];
 const ACC = {
   yt: ['refresh', 'channel', 'channel_id', 'client_id', 'client_secret'],
   meta: ['user_token', 'page_id', 'page_name', 'page_token', 'ig_id', 'ig_username', 'pages', 'expires', 'missing'],
@@ -13,7 +13,7 @@ const ACC = {
 const pick = (o, keys) => { const r = {}; for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') r[k] = o[k]; return r; };
 
 // Accepts either the laptop's db.json shape { settings, profiles } or this app's backup shape.
-async function importData(data) {
+async function importData(data, base) {
   if (!data || typeof data !== 'object') throw new Error('This is not a KMR Studio file.');
   const s = data.settings || {};
   let profiles = Array.isArray(data.profiles) ? data.profiles : null;
@@ -50,6 +50,9 @@ async function importData(data) {
     out.profiles.push(name + (n ? ` (${n} account${n > 1 ? 's' : ''})` : ''));
   }
   await kv.setJ('profiles', list);
+  if (keys.telegram_token && base) { // point the bot at the cloud studio at once
+    try { await require('./telegram').connect(base, keys.telegram_token); out.telegram = keys.telegram_chat_id ? 'connected' : 'needs start'; } catch (e) { out.telegram = e.message; }
+  }
   return out;
 }
 

@@ -109,7 +109,7 @@ function route() {
 }
 window.addEventListener('hashchange', () => S.st?.authed && route());
 
-function activeCount() { return S.jobs.filter(j => j.status === 'preparing' || j.status === 'posting').length; }
+function activeCount() { return S.jobs.filter(j => j.status === 'preparing' || j.status === 'posting' || j.status === 'review').length; }
 function render() {
   const nav = [['post', 'Post', 'upload'], ['history', 'History', 'clock'], ['profiles', 'Profiles', 'users'], ['settings', 'Settings', 'gear']];
   const count = activeCount();
@@ -175,6 +175,7 @@ function pagePost() {
       ${anyAcc ? `<div class="btn-row"><button class="btn sm quiet" data-act="all-on">Tick all</button><button class="btn sm quiet" data-act="all-off">Clear</button></div>` : ''}</div>
     <div class="targets">${profs.map(targetProfile).join('') || '<p class="muted">No profiles yet.</p>'}</div>
   </section>
+  <label class="check-row ask-first"><input type="checkbox" id="ask-first" ${askFirst() ? 'checked' : ''}> Ask me first: send it ${S.st.settings.telegram_chat_id ? 'to Telegram' : 'to History'} for my OK before posting</label>
   <div class="post-bar"><span class="muted small">${up ? `Uploading ${up} video${up > 1 ? 's' : ''}…` : ready ? `${outCount} video${outCount === 1 ? '' : 's'} → ${tcount} account${tcount === 1 ? '' : 's'}` : 'Add a video to start'}</span>
     <button class="btn primary big" data-act="post" ${!ready || up || !tcount ? 'disabled' : ''}>${icon('upload')}Post now</button></div>`;
 }
@@ -190,6 +191,7 @@ function thumbPicker() {
       <button class="btn sm ${a.sel === 'none' ? 'primary' : 'quiet'}" data-th="none">No thumbnail</button></div>
     ${a.thumbs.length ? `<div class="copyline" style="margin-top:8px"><input id="th-words" class="th-words" maxlength="40" value="${esc(a.thumb_text)}" aria-label="Words on the thumbnail"><button class="btn sm" data-act="remake">Change words</button></div>` : ''}</div>`;
 }
+function askFirst() { return S.approve ?? (S.st.settings.approve_default !== false); }
 const baseName = n => String(n || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
 function clipRow(c, i, n) {
   const status = c.status === 'uploading' ? `<div class="bar"><i style="width:${Math.round(c.progress || 0)}%"></i></div><div class="meta">Uploading ${Math.round(c.progress || 0)}%</div>`
@@ -235,6 +237,7 @@ function bindPost() {
   const allAct = on => { saveText(); S.st.profiles.forEach(p => PL.forEach(([k]) => { if (p[k].ok) on ? S.targets.add(`${p.id}:${k}`) : S.targets.delete(`${p.id}:${k}`); })); rerenderMain(); };
   const a1 = $('[data-act="all-on"]'), a0 = $('[data-act="all-off"]');
   if (a1) a1.onclick = () => allAct(true); if (a0) a0.onclick = () => allAct(false);
+  const af = $('#ask-first'); if (af) af.onchange = () => { S.approve = af.checked; };
   const ai = $('[data-act="ai"]'); if (ai) ai.onclick = () => { saveText(); runPreview(true); };
   $$('[data-th]').forEach(b => b.onclick = () => { const v = b.dataset.th; S.ai.sel = v === 'none' || v === 'own' ? v : Number(v); rerenderMain(); });
   const own = $('#own-th'); if (own) own.onchange = () => ownThumb(own.files[0]);
@@ -365,14 +368,14 @@ async function doPost() {
     mode: S.mode === 'join' && clips.length > 1 ? 'join' : 'each',
     items: clips.map(c => ({ pathname: c.pathname, name: c.name, size: c.size, title: c.title || '', description: S.text.description, hashtags: S.text.hashtags })),
     join: { title: S.text.title, description: S.text.description, hashtags: S.text.hashtags, ratio: S.ratio, fit: S.fit, thumb_data: chosenThumb(), hint: S.text.title },
-    targets
+    targets, approve: askFirst()
   };
   if (body.mode === 'each' && clips.length === 1) Object.assign(body.items[0], { title: S.text.title, thumb_data: chosenThumb() });
   const r = await api('/posts', { body });
   api('/settings', { body: { default_targets: targets } }).then(x => S.st.settings = x.settings).catch(() => {});
   S.clips.forEach(c => URL.revokeObjectURL(c.url));
   S.clips = []; S.text = { title: '', description: '', hashtags: '' }; S.ai = freshAi();
-  toast(r.jobs.length > 1 ? `${r.jobs.length} posts started. Follow them in History.` : 'Posting started. Follow it in History.');
+  toast(body.approve ? (S.st.settings.telegram_chat_id ? 'Getting it ready. It comes to Telegram for your OK in a minute.' : 'Getting it ready. Approve it in History.') : r.jobs.length > 1 ? `${r.jobs.length} posts started. Follow them in History.` : 'Posting started. Follow it in History.');
   S.jobs = [...r.jobs.map(j => ({ ...j, results: {} })), ...S.jobs.filter(j => !r.jobs.some(n => n.id === j.id))];
   location.hash = '#history';
 }
@@ -386,7 +389,7 @@ async function loadJobs() {
   rerenderMain();
   if (activeCount()) poll = setTimeout(loadJobs, 4000);
 }
-const JOB_PILL = { preparing: ['run', 'Preparing'], posting: ['run', 'Posting'], done: ['ok', 'Posted'], partial: ['bad', 'Some failed'], failed: ['bad', 'Failed'] };
+const JOB_PILL = { preparing: ['run', 'Preparing'], review: ['run', 'Waiting for your OK'], rejected: ['', 'Rejected'], posting: ['run', 'Posting'], done: ['ok', 'Posted'], partial: ['bad', 'Some failed'], failed: ['bad', 'Failed'] };
 function pageHistory() {
   const jobs = S.jobs;
   return `<div class="page-head"><div><p class="eyebrow">History</p><h1>Your posts</h1><p>Live status for every account. Failed ones can be retried.</p></div>
@@ -401,7 +404,7 @@ function jobCard(j) {
     const [pid, pl] = t.split(':'); const p = profs.find(x => x.id === pid);
     const r = (j.results || {})[t] || {};
     const stale = r.status === 'running' && Date.now() - (r.updated || 0) > 6 * 60000;
-    const st = j.status === 'failed' && !j.video ? ['bad', 'Not posted'] : j.status === 'preparing' ? ['', 'Waiting'] : r.status === 'done' ? ['ok', 'Posted'] : r.status === 'failed' ? ['bad', 'Failed'] : r.status === 'running' ? ['run', 'Posting'] : ['', 'Waiting'];
+    const st = j.status === 'rejected' || (j.status === 'failed' && !j.video) ? ['bad', 'Not posted'] : j.status === 'review' ? ['', 'Waiting for OK'] : j.status === 'preparing' ? ['', 'Waiting'] : r.status === 'done' ? ['ok', 'Posted'] : r.status === 'failed' ? ['bad', 'Failed'] : r.status === 'running' ? ['run', 'Posting'] : ['', 'Waiting'];
     const msg = r.status === 'done' ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${icon('link')} Open post</a>${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}`
       : r.status === 'failed' ? `<span class="err">${esc(r.error)}</span>` : stale ? '<span class="err">This seems stuck. Press Retry.</span>' : esc(r.msg || '');
     return `<div class="row">${plBadge(pl)}<div class="who"><b>${plName(pl)}</b> <span class="muted">· ${esc(p?.name || pid)}</span><div class="msg">${msg}</div></div>
@@ -416,6 +419,7 @@ function jobCard(j) {
         <div class="btn-row"><span class="pill ${cls}"><i class="dot"></i>${label}</span>
           ${j.status === 'failed' && !j.video && !j.files_removed ? `<button class="btn sm" data-retry="${j.id}">${icon('refresh')}Retry</button>` : ''}
           <button class="btn icon quiet" data-del="${j.id}" aria-label="Delete">${icon('trash')}</button></div></div>
+      ${j.status === 'review' ? `<div class="banner" style="margin:10px 0 0"><span>Check the video, title and thumbnail, then approve.${S.st.settings.telegram_chat_id ? ' You can also approve in Telegram.' : ''}</span><div class="btn-row"><button class="btn primary sm" data-approve="${j.id}">${icon('check')}Approve and post</button><button class="btn sm quiet danger" data-reject="${j.id}">Reject</button></div></div>` : ''}
       ${j.error ? `<p class="err small">${esc(j.error)}</p>` : last && j.status === 'preparing' ? `<p class="small muted">${esc(last.msg)}</p>` : ''}
       <div class="rows">${rows}</div>
       ${j.files_removed && j.status !== 'done' ? '<p class="muted small">The video file was cleared from storage after 7 days. Upload it again to post it.</p>' : ''}
@@ -424,6 +428,9 @@ function jobCard(j) {
 document.addEventListener('click', e => {
   const r = e.target.closest('[data-retry]'), d = e.target.closest('[data-del]'), rl = e.target.closest('[data-act="reload"]');
   if (rl) loadJobs();
+  const ap = e.target.closest('[data-approve]'), rj = e.target.closest('[data-reject]');
+  if (ap) busy(ap, async () => { await api(`/posts/${ap.dataset.approve}/approve`, { body: {} }); toast('Approved. Posting now.'); await loadJobs(); });
+  if (rj && confirm('Reject this video? Nothing will be posted and the video file is deleted.')) busy(rj, async () => { await api(`/posts/${rj.dataset.reject}/reject`, { body: {} }); await loadJobs(); });
   if (r) busy(r, async () => { await api(`/posts/${r.dataset.retry}/retry`, { body: { target: r.dataset.t || undefined } }); toast('Trying again.'); await loadJobs(); });
   if (d && confirm('Delete this post from the history? (Posts already online stay online.)')) busy(d, async () => { await api('/posts/' + d.dataset.del, { method: 'DELETE' }); await loadJobs(); });
 });
@@ -505,6 +512,13 @@ function pageSettings() {
   ${box('LinkedIn app', s.li_client_id, 'Free. Posts go to each person\'s own LinkedIn profile.', ['<a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">LinkedIn Developers</a>, your app, Products: add <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>.', `Auth tab, Authorized redirect URLs: add <code>${esc(cb)}</code>`, 'Copy the Client ID and secret here.'], f('li_client_id', 'Client ID') + f('li_client_secret', 'Client secret', true))}
   ${box('X app (optional, paid by X)', s.x_client_id, 'X charges about US$0.02 per video post from prepaid credits.', ['<a href="https://console.x.com" target="_blank" rel="noopener">console.x.com</a>, your app, User authentication: OAuth 2.0, <b>Web App</b>, <b>Read and write</b>.', `Callback URL: <code>${esc(cb)}</code>, Website: <code>https://www.kmr-groups.com</code>`, 'Copy the OAuth 2.0 Client ID and secret here.'], f('x_client_id', 'Client ID') + f('x_client_secret', 'Client secret', true))}
   ${box('AI writer: Gemini and Groq (free)', s.gemini_key, 'Gemini watches the video and writes the title, caption, hashtags and thumbnail headline. Groq is the backup when Gemini is busy: it listens to the video and writes from what is said.', ['Gemini: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, <b>Create API key</b>, copy it here (use a personal Gmail).', 'Groq (backup): <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>, <b>Create API Key</b>, copy it here.'], f('gemini_key', 'Gemini API key', true) + f('groq_key', 'Groq API key (backup)', true))}
+  <section class="panel" id="tg"><div class="panel-head"><div><h2>Telegram: approve from your phone</h2><p>Each new video comes to your Telegram bot with Approve and Reject buttons, and you get the links once it is posted.</p></div>
+      <span class="pill ${s.telegram_chat_id ? 'ok' : ''}"><i class="dot"></i>${s.telegram_chat_id ? 'Connected' + (s.telegram_bot ? ' to @' + esc(s.telegram_bot) : '') : 'Not connected'}</span></div>
+    <ol class="steps small"><li>Already had a bot in the laptop version? <b>Bring keys from the laptop version</b> (below) brings it over. Otherwise: in Telegram open <b>@BotFather</b>, send <code>/newbot</code>, and copy the token it gives.</li><li>Paste the token and press <b>Connect</b>.</li><li>Press <b>Open Telegram</b> and tap <b>Start</b>. The bot says "KMR Studio is connected".</li></ol>
+    <div class="form-grid"><label class="field"><span class="label">Bot token${s.telegram_token ? ' (saved)' : ''}</span><input id="tg-token" placeholder="${s.telegram_token ? 'Saved: leave empty to keep it' : '123456789:AA…'}" autocomplete="off" spellcheck="false"></label></div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-tg="connect">${s.telegram_chat_id ? 'Connect again' : 'Connect'}</button>${S.tgLink ? `<a class="btn sm" href="${esc(S.tgLink)}" target="_blank" rel="noopener">Open Telegram and tap Start</a><button class="btn sm quiet" data-tg="check">I tapped Start</button>` : ''}${s.telegram_chat_id ? '<button class="btn sm" data-tg="test">Send a test</button><button class="btn sm quiet danger" data-tg="disconnect">Disconnect</button>' : ''}</div>
+    <label class="check-row" style="margin-top:14px"><input type="checkbox" data-key="approve_default" ${s.approve_default !== false ? 'checked' : ''}> Ask me before posting (on Telegram, or in History)</label>
+    <div class="btn-row" style="margin-top:10px"><button class="btn sm" data-save>Save</button></div></section>
   <section class="panel"><div class="panel-head"><div><h2>AI writing and thumbnails</h2><p>Needs the free Gemini key above.</p></div></div>
     <div class="form-grid">
       <label class="check-row"><input type="checkbox" data-key="auto_text" ${s.auto_text !== false ? 'checked' : ''}> AI writes the title, caption and hashtags by watching the video</label>
@@ -535,6 +549,13 @@ document.addEventListener('click', e => {
     for (const k of Object.keys(patch)) if (/(_secret|_key)$/.test(k) && patch[k] === '') delete patch[k];
     S.st.settings = (await api('/settings', { body: patch })).settings; rerenderMain(); toast('Saved.');
   });
+  if (t.dataset.tg) busy(t, async () => {
+    const k = t.dataset.tg;
+    if (k === 'connect') { const r = await api('/telegram/connect', { body: { token: ($('#tg-token').value || '').trim() || undefined } }); S.tgLink = r.link; S.st = await api('/state'); rerenderMain(); toast(`Bot @${r.bot} is ready. Now press Open Telegram and tap Start.`); }
+    if (k === 'check') { S.st = await api('/state'); if (S.st.settings.telegram_chat_id) { S.tgLink = null; toast('Telegram is connected.'); } else toast('Not yet. In Telegram, tap Start in the chat with your bot, then press this again.', true); rerenderMain(); }
+    if (k === 'test') toast((await api('/telegram/test', { body: {} })).message);
+    if (k === 'disconnect' && confirm('Disconnect Telegram?')) { await api('/telegram/disconnect', { body: {} }); S.st = await api('/state'); rerenderMain(); }
+  });
   if (t.dataset.copy) navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Copied.'), () => toast('Select the text and copy it.', true));
   if (t.hasAttribute('data-logo-clear')) busy(t, async () => { S.st.settings = (await api('/settings', { body: { logo: '' } })).settings; render(); });
 });
@@ -545,14 +566,14 @@ document.addEventListener('change', async e => {
     let db;
     try { db = JSON.parse(await f.text()); } catch { throw new Error('This file could not be read. Choose db.json from the data folder of KMR Studio on the laptop.'); }
     const s = db.settings || {};
-    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
+    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
       'yt_refresh_token', 'yt_channel', 'meta_user_token', 'meta_page_id', 'meta_page_name', 'meta_page_token', 'meta_ig_id', 'meta_ig_username', 'meta_pages'];
     const data = { settings: Object.fromEntries(keep.filter(k => s[k] !== undefined).map(k => [k, s[k]])), profiles: Array.isArray(db.profiles) ? db.profiles.map(p => ({ id: p.id, name: p.name, yt: p.yt, meta: p.meta, li: p.li, x: p.x })) : null };
     if (!confirm('Copy the keys and connected accounts from this file into the cloud studio? Accounts with the same profile are replaced.')) return;
     const r = await api('/import', { body: { data } });
     S.st = await api('/state'); S.targets = new Set((S.st.settings.default_targets || []).filter(isConnected));
     render();
-    toast(`Done: ${r.keys} keys and ${r.accounts} accounts copied (${r.profiles.join(', ')}). Press Check on an account in Profiles to test it.`);
+    toast(`Done: ${r.keys} keys and ${r.accounts} accounts copied (${r.profiles.join(', ')}).${r.telegram === 'connected' ? ' Telegram is connected.' : r.telegram === 'needs start' ? ' For Telegram, press Connect in Settings, Telegram.' : ''} Press Check on an account in Profiles to test it.`);
   } catch (err) { toast(err.message, true); }
 });
 document.addEventListener('change', async e => {

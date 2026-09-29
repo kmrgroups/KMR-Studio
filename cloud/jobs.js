@@ -44,6 +44,7 @@ async function create(b, base) {
       id: st.uid(), created: Date.now(), status: 'preparing', mode: g.files.length > 1 ? 'join' : 'single',
       title: String(blank(m.title) ? baseName(g.files[0].name) : m.title).slice(0, 100), description: String(m.description || '').slice(0, 4500), hashtags: cleanTags(m.hashtags),
       auto: ai ? { title: blank(m.title), description: blank(m.description), hashtags: blank(m.hashtags) } : null, hint: String(m.hint || '').slice(0, 300),
+      approve: b.approve !== undefined ? !!b.approve : !!s.approve_default,
       thumb_mode: g.thumb === 'none' ? 'none' : g.thumb ? 'chosen' : (s.auto_thumb ? 'auto' : 'none'),
       targets, sources: g.files.map(f => ({ pathname: f.pathname, name: String(f.name || '').slice(0, 120), size: Number(f.size) || 0 })),
       ratio: b.join?.ratio || 'auto', fit: ['blur', 'bars', 'crop'].includes(b.join?.fit) ? b.join.fit : 'blur',
@@ -92,11 +93,21 @@ async function prepare(id, base) {
     j.log = [...(j.log || []), { t: Date.now(), msg: `Ready: ${Math.round(i.duration)} seconds, ${i.w}x${i.h}. ${notes.join(' ')}`.trim() }];
     await st.saveJob(j);
     if (!r.reused) await files.remove(job.sources.map(s => s.pathname)); // the joined or converted copy is what gets posted
+    if (j.approve) {
+      for (const t of job.targets) await st.setResult(id, t, { status: 'queued', msg: 'Waiting for your OK' }, true);
+      await st.patchJob(id, { status: 'review' });
+      const tg = require('./telegram');
+      let sent = false;
+      try { sent = await tg.review(await st.job(id), base); } catch (e) { await st.log(id, 'Telegram: ' + e.message); }
+      await st.log(id, sent ? 'Sent to Telegram for your OK' : 'Waiting for your OK in History (Telegram is not connected)');
+      return;
+    }
     for (const t of job.targets) await st.setResult(id, t, { status: 'queued', msg: 'Waiting to start' }, true);
     for (const t of job.targets) await trigger(base, { kind: 'post', job: id, target: t }).catch(e => st.setResult(id, t, { status: 'failed', error: e.message }));
   } catch (e) {
     await st.patchJob(id, { status: 'failed', error: e.message });
     await st.log(id, 'Could not prepare the video: ' + e.message);
+    require('./telegram').send(`⚠️ Could not prepare "${String(job.title).replace(/[<>&]/g, '')}": ${String(e.message).replace(/[<>&]/g, '')}`).catch(() => {});
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     await unlock('prep:' + id);
@@ -195,12 +206,31 @@ async function finishIfDone(id) {
   const ok = all.filter(r => r.status === 'done').length;
   const status = ok === all.length ? 'done' : ok ? 'partial' : 'failed';
   await st.patchJob(id, { status, finished: Date.now() });
+  await require('./telegram').finished(job, res).catch(() => {});
   if (status === 'done') await removeFiles(await st.job(id)); // storage is small (1 GB): a fully posted video is deleted
 }
 async function removeFiles(job) {
   if (!job || job.files_removed) return;
   await files.remove([job.video?.pathname, ...(job.sources || []).map(s => s.pathname)].filter(Boolean));
   await st.patchJob(job.id, { files_removed: true });
+}
+
+// Your OK (from Telegram or History): the video goes out to every chosen account.
+async function approve(id, base) {
+  const job = await st.job(id); if (!job) throw new Error('This video no longer exists.');
+  if (job.status !== 'review') throw new Error(job.status === 'rejected' ? 'This video was already rejected.' : 'This video was already approved.');
+  await st.patchJob(id, { status: 'posting', approved: Date.now() });
+  await st.log(id, 'Approved');
+  for (const t of job.targets) await st.setResult(id, t, { status: 'queued', msg: 'Waiting to start' }, true);
+  for (const t of job.targets) await trigger(base, { kind: 'post', job: id, target: t }).catch(e => st.setResult(id, t, { status: 'failed', error: e.message }));
+}
+async function reject(id) {
+  const job = await st.job(id); if (!job) throw new Error('This video no longer exists.');
+  if (job.status !== 'review') throw new Error('This video was already ' + (job.status === 'rejected' ? 'rejected.' : 'approved.'));
+  for (const t of job.targets) await st.setResult(id, t, { status: 'rejected', msg: 'Not posted' }, true);
+  await st.patchJob(id, { status: 'rejected', finished: Date.now() });
+  await st.log(id, 'Rejected: nothing was posted');
+  await removeFiles(await st.job(id));
 }
 
 async function retry(id, target, base) {
@@ -228,7 +258,7 @@ async function list(n = 40) {
     for (let i = 0; i < a.length; i += 2) { try { res[a[i]] = JSON.parse(a[i + 1]); } catch {} }
     job.results = res;
     const age = Date.now() - (job.finished || job.created);
-    if (!job.files_removed && ((job.status === 'done' && age > 3600000) || (['failed', 'partial'].includes(job.status) && age > 7 * 864e5))) { await removeFiles(job); job.files_removed = true; }
+    if (!job.files_removed && ((job.status === 'done' && age > 3600000) || (['failed', 'partial', 'review'].includes(job.status) && age > 7 * 864e5))) { await removeFiles(job); job.files_removed = true; }
     out.push(job);
   }
   return out;
@@ -240,4 +270,4 @@ async function remove(id) {
   await st.removeJob(id);
 }
 
-module.exports = { create, prepare, postTarget, retry, list, remove, workKey, cleanTags, finishIfDone };
+module.exports = { create, prepare, postTarget, approve, reject, retry, list, remove, workKey, cleanTags, finishIfDone };

@@ -210,3 +210,4 @@ details.help { margin-top: 10px; } details.help summary { cursor: pointer; color
 .th-words { flex: 1; min-width: 160px; background: var(--velvet-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 9px 12px; }
 .check-row { display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px; cursor: pointer; }
 .check-row input { width: 18px; height: 18px; accent-color: #FFB547; margin-top: 2px; flex: none; }
+.ask-first { margin: 16px 4px 0; }

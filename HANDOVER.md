@@ -13,6 +13,8 @@
 >
 > **2.2.0:** Settings, "Bring keys from the laptop version": the page reads the laptop's `data\db.json`, sends only keys and account logins (`cloud/transfer.js` importData, also reads pre-1.7 single-account files), and "Download backup" (GET /api/export) for the cloud version.
 >
+> **2.3.0:** Telegram in the cloud (`cloud/telegram.js`): webhook at /api/telegram (secret header), /start <code> links the chat, review message with Approve/Reject (callback ap:/rj:), result message after posting. Jobs have `approve`; after prepare they wait in status `review` (approve/reject also in History). Settings `telegram_token`, `telegram_chat_id`, `approve_default`; imported from the laptop db.json. Gemini: `cloud/gemini.js` lists models, asks two at once with thinkingBudget 0; Groq (`cloud/groq.js`) is the backup (Whisper + text model).
+>
 > Everything below describes the older PC version (1.x), still in the repo but not deployed.
 
 

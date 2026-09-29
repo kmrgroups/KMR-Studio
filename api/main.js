@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.2.3';
+const VERSION = '2.3.0';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -53,6 +53,10 @@ module.exports = async function handler(req, res) {
       } catch (e) { return H.redirect(res, '/#profiles&err=' + encodeURIComponent(e.message)); }
     }
 
+    if (path === '/telegram' && M === 'POST') { // Telegram webhook (checked by its secret header)
+      try { await require('../cloud/telegram').handleUpdate(req, await H.body(req), H.base(req)); } catch (e) { console.error('telegram', e.message); }
+      return H.send(res, 200, { ok: true });
+    }
     // ---- signed in only ----
     if (!await H.authed(req)) return H.send(res, 401, { error: 'Please sign in again.' });
     const b = M === 'GET' ? {} : await H.body(req);
@@ -99,7 +103,14 @@ module.exports = async function handler(req, res) {
     if ((m = /^\/posts\/([\w]+)\/retry$/.exec(path)) && M === 'POST') { await jobs.retry(m[1], b.target, base); return H.send(res, 200, { ok: true }); }
     if ((m = /^\/posts\/([\w]+)$/.exec(path)) && M === 'DELETE') { await jobs.remove(m[1]); return H.send(res, 200, { ok: true }); }
 
-    if (path === '/import' && M === 'POST') return H.send(res, 200, await require('../cloud/transfer').importData(b.data));
+    if (path === '/import' && M === 'POST') return H.send(res, 200, await require('../cloud/transfer').importData(b.data, base));
+    if ((m = /^\/telegram\/(connect|test|disconnect)$/.exec(path)) && M === 'POST') {
+      const tg = require('../cloud/telegram');
+      if (m[1] === 'connect') return H.send(res, 200, await tg.connect(base, b.token));
+      if (m[1] === 'test') return H.send(res, 200, { message: await tg.test() });
+      await tg.disconnect(); return H.send(res, 200, { ok: true });
+    }
+    if ((m = /^\/posts\/([\w]+)\/(approve|reject)$/.exec(path)) && M === 'POST') { m[2] === 'approve' ? await jobs.approve(m[1], base) : await jobs.reject(m[1]); return H.send(res, 200, { ok: true }); }
     if (path === '/export' && M === 'GET') {
       const data = await require('../cloud/transfer').exportData();
       return H.send(res, 200, data, { 'Content-Disposition': `attachment; filename="kmr-studio-backup-${new Date().toISOString().slice(0, 10)}.json"` });

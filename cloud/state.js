@@ -9,9 +9,9 @@ const SECTION = { youtube: 'yt', instagram: 'meta', facebook: 'meta', linkedin: 
 
 const DEFAULTS = {
   yt_client_id: '', yt_client_secret: '', meta_app_id: '', meta_app_secret: '', li_client_id: '', li_client_secret: '',
-  x_client_id: '', x_client_secret: '', gemini_key: '', groq_key: '', yt_privacy: 'public', default_targets: [], x_post_limit: 280, meta_graph_version: 'v23.0', logo: '', auto_text: true, auto_thumb: true, text_language: 'English'
+  x_client_id: '', x_client_secret: '', gemini_key: '', groq_key: '', telegram_token: '', telegram_chat_id: '', telegram_bot: '', approve_default: true, yt_privacy: 'public', default_targets: [], x_post_limit: 280, meta_graph_version: 'v23.0', logo: '', auto_text: true, auto_thumb: true, text_language: 'English'
 };
-const SECRET_KEYS = ['yt_client_secret', 'meta_app_secret', 'li_client_secret', 'x_client_secret', 'gemini_key', 'groq_key'];
+const SECRET_KEYS = ['yt_client_secret', 'meta_app_secret', 'li_client_secret', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token'];
 
 async function settings() { return { ...DEFAULTS, ...(await kv.getJ('settings') || {}) }; }
 async function saveSettings(patch) {
