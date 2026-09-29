@@ -11,6 +11,8 @@
 >
 > **2.1.0:** `cloud/describe.js` (Gemini with inline JPEG frames and MP3 audio; thumbnails via ffmpeg `ass` filter with fonts in `cloud/fonts`: Anton, Noto Sans Tamil, Noto Sans Devanagari, read by name so Vercel bundles them) and `cloud/preview.js` (Post page preview, POST /api/work {kind:'preview'} for the signed-in owner, returns data URLs). Jobs carry `auto` (which fields the AI may fill), `thumb_mode` and `thumb` (out/<id>-thumb.jpg). Settings `auto_text`, `auto_thumb`, `text_language`.
 >
+> **2.2.0:** Settings, "Bring keys from the laptop version": the page reads the laptop's `data\db.json`, sends only keys and account logins (`cloud/transfer.js` importData, also reads pre-1.7 single-account files), and "Download backup" (GET /api/export) for the cloud version.
+>
 > Everything below describes the older PC version (1.x), still in the repo but not deployed.
 
 

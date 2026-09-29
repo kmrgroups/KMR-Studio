@@ -510,6 +510,11 @@ function pageSettings() {
   <section class="panel"><div class="panel-head"><h2>Posting</h2></div>
     <div class="form-grid"><label class="field"><span class="label">YouTube visibility</span><select data-key="yt_privacy">${[['public', 'Public'], ['unlisted', 'Unlisted (only with the link)'], ['private', 'Private']].map(([k, l]) => `<option value="${k}" ${s.yt_privacy === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
     <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div></section>
+  <section class="panel"><div class="panel-head"><div><h2>Bring keys from the laptop version</h2><p>Copies your app keys and every profile's connected accounts, so you do not have to find the keys or connect again.</p></div></div>
+    <ol class="steps small"><li>On the laptop, open the KMR Studio folder (for example <code>C:\\kmr-studio</code>), then the <b>data</b> folder.</li><li>Find the file <b>db.json</b>. Copy it to your phone if you are on the phone (WhatsApp to yourself, Google Drive or a cable).</li><li>Press <b>Choose db.json</b> below and pick it. Only the keys and account logins are sent; videos and history stay on the laptop.</li><li>Afterwards, close the laptop version. X logins work in one place only.</li></ol>
+    <div class="btn-row"><label class="btn primary sm">${icon('upload')}Choose db.json<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+      <a class="btn sm" href="/api/export" download>${icon('copy')}Download backup</a></div>
+    <p class="muted small">The backup file holds your keys and logins for this cloud studio. Keep it private; you can bring it back here the same way.</p></section>
   <section class="panel"><div class="panel-head"><div><h2>Logo</h2><p>Shows in the menu. A square PNG works best.</p></div></div>
     <div class="btn-row">${brandMark()}<label class="btn sm">${icon('upload')}Choose logo<input type="file" id="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden></label>${s.logo ? '<button class="btn sm quiet" data-logo-clear>Remove</button>' : ''}</div></section>
   <section class="panel"><div class="panel-head"><h2>Sign-in return address</h2></div>
@@ -527,6 +532,23 @@ document.addEventListener('click', e => {
   });
   if (t.dataset.copy) navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Copied.'), () => toast('Select the text and copy it.', true));
   if (t.hasAttribute('data-logo-clear')) busy(t, async () => { S.st.settings = (await api('/settings', { body: { logo: '' } })).settings; render(); });
+});
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'import-file' || !e.target.files[0]) return;
+  const f = e.target.files[0]; e.target.value = '';
+  try {
+    let db;
+    try { db = JSON.parse(await f.text()); } catch { throw new Error('This file could not be read. Choose db.json from the data folder of KMR Studio on the laptop.'); }
+    const s = db.settings || {};
+    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
+      'yt_refresh_token', 'yt_channel', 'meta_user_token', 'meta_page_id', 'meta_page_name', 'meta_page_token', 'meta_ig_id', 'meta_ig_username', 'meta_pages'];
+    const data = { settings: Object.fromEntries(keep.filter(k => s[k] !== undefined).map(k => [k, s[k]])), profiles: Array.isArray(db.profiles) ? db.profiles.map(p => ({ id: p.id, name: p.name, yt: p.yt, meta: p.meta, li: p.li, x: p.x })) : null };
+    if (!confirm('Copy the keys and connected accounts from this file into the cloud studio? Accounts with the same profile are replaced.')) return;
+    const r = await api('/import', { body: { data } });
+    S.st = await api('/state'); S.targets = new Set((S.st.settings.default_targets || []).filter(isConnected));
+    render();
+    toast(`Done: ${r.keys} keys and ${r.accounts} accounts copied (${r.profiles.join(', ')}). Press Check on an account in Profiles to test it.`);
+  } catch (err) { toast(err.message, true); }
 });
 document.addEventListener('change', async e => {
   if (e.target.id !== 'logo' || !e.target.files[0]) return;

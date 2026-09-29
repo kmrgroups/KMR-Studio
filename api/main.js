@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -99,6 +99,11 @@ module.exports = async function handler(req, res) {
     if ((m = /^\/posts\/([\w]+)\/retry$/.exec(path)) && M === 'POST') { await jobs.retry(m[1], b.target, base); return H.send(res, 200, { ok: true }); }
     if ((m = /^\/posts\/([\w]+)$/.exec(path)) && M === 'DELETE') { await jobs.remove(m[1]); return H.send(res, 200, { ok: true }); }
 
+    if (path === '/import' && M === 'POST') return H.send(res, 200, await require('../cloud/transfer').importData(b.data));
+    if (path === '/export' && M === 'GET') {
+      const data = await require('../cloud/transfer').exportData();
+      return H.send(res, 200, data, { 'Content-Disposition': `attachment; filename="kmr-studio-backup-${new Date().toISOString().slice(0, 10)}.json"` });
+    }
     if (path === '/ai/write' && M === 'POST') return H.send(res, 200, await require('../cloud/ai').write(b));
 
     return H.send(res, 404, { error: 'Not found: ' + path });
