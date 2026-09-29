@@ -117,7 +117,20 @@ async function post(ctx) {
   const up = await fetch(r.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': 'video/mp4' }, body: buf });
   const j = await up.json().catch(() => ({}));
   if (!up.ok || !j.id) throw new Error(friendly('YouTube upload: ' + JSON.stringify(j.error || j).slice(0, 300)));
-  const note = j.status?.privacyStatus === 'private' && (s.yt_privacy || 'public') !== 'private' ? 'YouTube kept it private until your Google app passes its audit.' : '';
+  const notes = [];
+  if (j.status?.privacyStatus === 'private' && (s.yt_privacy || 'public') !== 'private') notes.push('YouTube kept it private until your Google app passes its audit.');
+  if (ctx.thumb) {
+    try {
+      const img = await ctx.readThumb();
+      const t = await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${j.id}`, { method: 'POST', headers: { Authorization: 'Bearer ' + await token(profile.id), 'Content-Type': 'image/jpeg' }, body: img });
+      if (!t.ok) {
+        const e = await t.json().catch(() => ({}));
+        const why = e.error?.errors?.[0]?.reason || e.error?.message || t.status;
+        notes.push(/forbidden|permission|verif/i.test(String(why)) ? 'Thumbnail not set: verify the channel once at youtube.com/verify (phone number) so YouTube allows custom thumbnails.' : 'Thumbnail not set (' + why + ').');
+      }
+    } catch (e) { notes.push('Thumbnail not set (' + e.message + ').'); }
+  }
+  const note = notes.join(' ');
   return { done: { id: j.id, url: isShort ? `https://youtube.com/shorts/${j.id}` : `https://youtu.be/${j.id}`, note } };
 }
 

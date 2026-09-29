@@ -2,6 +2,9 @@
 
 Upload your Google Flow clips (or any video), join several into one longer video if you like, and post to YouTube, Instagram, Facebook, LinkedIn and X, for one profile or many at once. Runs completely in the cloud on Vercel's free plan: no PC, no card.
 
+## AI title, caption, hashtags and thumbnail
+With a free Gemini key (Settings), the AI watches the video (8 frames and the sound) as soon as it is uploaded, fills in the title, caption and hashtags, and offers three thumbnails with a short headline (English, Tamil or Hindi). Anything left empty is filled while posting. Thumbnails go to YouTube (channel must be verified for custom thumbnails), the Instagram Reel cover and Facebook.
+
 ## How it works
 - **web/**: the app (phone and desktop). **api/main.js**: sign-in, profiles, settings, posts. **api/work.js**: background work (joining with FFmpeg, then one run per account).
 - Videos go from your phone straight into a **private Vercel Blob** store (free: 1 GB). A video is deleted from storage once every account has posted it.

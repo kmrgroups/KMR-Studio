@@ -67,6 +67,12 @@ async function putFile(p, file, contentType = 'video/mp4') {
   return { pathname: r.pathname, size };
 }
 
+async function putBuffer(p, buf, contentType = 'image/jpeg') {
+  const tmp = path.join(require('os').tmpdir(), 'kmr-put-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+  fs.writeFileSync(tmp, buf);
+  try { return await putFile(p, tmp, contentType); } finally { fs.rmSync(tmp, { force: true }); }
+}
+
 async function remove(list) {
   const ps = (Array.isArray(list) ? list : [list]).filter(okPath);
   if (!ps.length || !ready()) return;
@@ -79,4 +85,4 @@ async function size(p) {
   try { const h = await blob().head(p); return h.size || 0; } catch { return 0; }
 }
 
-module.exports = { ready, handleUpload, signedUrl, download, readBuffer, putFile, remove, size, okPath, safeName, fakePath, MAX };
+module.exports = { ready, handleUpload, signedUrl, download, readBuffer, putFile, putBuffer, remove, size, okPath, safeName, fakePath, MAX };

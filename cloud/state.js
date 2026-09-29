@@ -9,7 +9,7 @@ const SECTION = { youtube: 'yt', instagram: 'meta', facebook: 'meta', linkedin: 
 
 const DEFAULTS = {
   yt_client_id: '', yt_client_secret: '', meta_app_id: '', meta_app_secret: '', li_client_id: '', li_client_secret: '',
-  x_client_id: '', x_client_secret: '', gemini_key: '', yt_privacy: 'public', default_targets: [], x_post_limit: 280, meta_graph_version: 'v23.0', logo: ''
+  x_client_id: '', x_client_secret: '', gemini_key: '', yt_privacy: 'public', default_targets: [], x_post_limit: 280, meta_graph_version: 'v23.0', logo: '', auto_text: true, auto_thumb: true, text_language: 'English'
 };
 const SECRET_KEYS = ['yt_client_secret', 'meta_app_secret', 'li_client_secret', 'x_client_secret', 'gemini_key'];
 
@@ -19,7 +19,7 @@ async function saveSettings(patch) {
   for (const [k, v] of Object.entries(patch || {})) {
     if (!(k in DEFAULTS)) continue;
     if (SECRET_KEYS.includes(k) && (v === undefined || v === null || String(v).startsWith('••'))) continue; // keep the saved one
-    s[k] = typeof DEFAULTS[k] === 'string' ? String(v ?? '').trim() : v;
+    s[k] = typeof DEFAULTS[k] === 'string' ? String(v ?? '').trim() : typeof DEFAULTS[k] === 'boolean' ? (v === true || v === 'true') : v;
   }
   await kv.setJ('settings', s);
   return s;

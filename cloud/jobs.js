@@ -31,18 +31,29 @@ async function create(b, base) {
   const targets = [...new Set((b.targets || []).map(String))].filter(t => { const [pid, pl] = t.split(':'); const p = profs.find(x => x.id === pid); return p && st.PKEYS.includes(pl) && st.connected(p, pl); });
   if (!targets.length) throw new Error('Tick at least one connected account under "Post to".');
   const join = b.mode === 'join' && items.length > 1;
+  const s = await st.settings();
+  const ai = !!(s.auto_text && s.gemini_key);
+  const blank = v => !String(Array.isArray(v) ? v.join(' ') : v || '').trim();
   const groups = join
-    ? [{ files: items, meta: { title: b.join?.title || baseName(items[0].name), description: b.join?.description || '', hashtags: b.join?.hashtags } }]
-    : items.map(it => ({ files: [it], meta: { title: it.title || baseName(it.name), description: it.description || '', hashtags: it.hashtags } }));
+    ? [{ files: items, meta: b.join || {}, thumb: b.join?.thumb_data }]
+    : items.map(it => ({ files: [it], meta: it, thumb: it.thumb_data }));
   const made = [];
   for (const g of groups) {
+    const m = g.meta;
     const job = {
       id: st.uid(), created: Date.now(), status: 'preparing', mode: g.files.length > 1 ? 'join' : 'single',
-      title: String(g.meta.title || 'My video').slice(0, 100), description: String(g.meta.description || '').slice(0, 4500), hashtags: cleanTags(g.meta.hashtags),
+      title: String(blank(m.title) ? baseName(g.files[0].name) : m.title).slice(0, 100), description: String(m.description || '').slice(0, 4500), hashtags: cleanTags(m.hashtags),
+      auto: ai ? { title: blank(m.title), description: blank(m.description), hashtags: blank(m.hashtags) } : null, hint: String(m.hint || '').slice(0, 300),
+      thumb_mode: g.thumb === 'none' ? 'none' : g.thumb ? 'chosen' : (s.auto_thumb ? 'auto' : 'none'),
       targets, sources: g.files.map(f => ({ pathname: f.pathname, name: String(f.name || '').slice(0, 120), size: Number(f.size) || 0 })),
       ratio: b.join?.ratio || 'auto', fit: ['blur', 'bars', 'crop'].includes(b.join?.fit) ? b.join.fit : 'blur',
       log: [{ t: Date.now(), msg: g.files.length > 1 ? `Joining ${g.files.length} videos into one` : 'Checking the video' }]
     };
+    if (typeof g.thumb === 'string' && g.thumb.startsWith('data:image/')) {
+      const buf = Buffer.from(g.thumb.split(',')[1] || '', 'base64');
+      if (buf.length > 1000 && buf.length < 2e6) { job.thumb = `out/${job.id}-thumb.jpg`; await files.putBuffer(job.thumb, buf); }
+      else job.thumb_mode = s.auto_thumb ? 'auto' : 'none';
+    }
     await st.addJob(job);
     made.push(job);
   }
@@ -68,6 +79,7 @@ async function prepare(id, base) {
     let pathname = job.sources[0].pathname;
     if (!r.reused) { pathname = `out/${id}.mp4`; await files.putFile(pathname, r.file); }
     const i = r.info;
+    await autoFill(id, r, dir);
     const video = { pathname, duration: Math.round(i.duration * 10) / 10, w: i.w, h: i.h, size: fs.statSync(r.file).size, ratio: media.ratioOf(i.w, i.h) };
     const notes = [];
     const tg = job.targets.join(' ');
@@ -76,6 +88,7 @@ async function prepare(id, base) {
     if (/:youtube\b/.test(tg) && i.h > i.w && i.duration <= 180) notes.push('It goes to YouTube as a Short.');
     const j = await st.job(id);
     j.video = video; j.status = 'posting';
+    if (j.thumb) video.thumb = j.thumb;
     j.log = [...(j.log || []), { t: Date.now(), msg: `Ready: ${Math.round(i.duration)} seconds, ${i.w}x${i.h}. ${notes.join(' ')}`.trim() }];
     await st.saveJob(j);
     if (!r.reused) await files.remove(job.sources.map(s => s.pathname)); // the joined or converted copy is what gets posted
@@ -87,6 +100,42 @@ async function prepare(id, base) {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     await unlock('prep:' + id);
+  }
+}
+
+// AI writes what the owner left empty, and makes the thumbnail if none was chosen.
+async function autoFill(id, r, dir) {
+  const job = await st.job(id);
+  const needText = job.auto && (job.auto.title || job.auto.description || job.auto.hashtags);
+  const needThumb = job.thumb_mode === 'auto' && !job.thumb;
+  if (!needText && !needThumb) return;
+  const describe = require('./describe');
+  let a = null;
+  if (needText || (needThumb && job.auto)) {
+    try {
+      await st.log(id, 'AI is watching the video to write the title, caption and hashtags');
+      a = await describe.analyze([{ file: r.file, info: r.info }], { hint: job.hint || (job.auto?.title ? '' : job.title), dir });
+    } catch (e) { await st.log(id, 'AI could not write the text: ' + e.message); }
+  }
+  const patch = {};
+  if (a && job.auto) {
+    if (job.auto.title && a.title) patch.title = a.title;
+    if (job.auto.description && a.description) patch.description = a.description;
+    if (job.auto.hashtags && a.hashtags.length) patch.hashtags = cleanTags(a.hashtags);
+  }
+  if (needThumb) {
+    try {
+      const [W, H] = describe.thumbSize(r.info.w, r.info.h);
+      const t = a ? a.frames[a.best].t : Math.min(r.info.duration / 3, 3);
+      const words = a?.thumb_text || String(patch.title || job.title).split(/\s+/).slice(0, 4).join(' ');
+      const out = await describe.thumbnail(r.file, t, words, W, H, path.join(dir, 'thumb.jpg'));
+      patch.thumb = `out/${id}-thumb.jpg`;
+      await files.putFile(patch.thumb, out, 'image/jpeg');
+    } catch (e) { await st.log(id, 'Could not make the thumbnail: ' + e.message); }
+  }
+  if (Object.keys(patch).length) {
+    await st.patchJob(id, patch);
+    await st.log(id, [patch.title && `Title: ${patch.title}`, patch.thumb && 'Thumbnail made'].filter(Boolean).join(' · ') || 'Text written');
   }
 }
 
@@ -117,7 +166,10 @@ async function postTarget(id, target, base) {
       profile, job, video: job.video, state: { ...(res.state || {}) },
       timeLeft: () => started + RUN_MS - Date.now(),
       readVideo: async () => buf || (buf = await files.readBuffer(job.video.pathname)),
-      videoUrl: minutes => files.signedUrl(job.video.pathname, minutes)
+      videoUrl: minutes => files.signedUrl(job.video.pathname, minutes),
+      thumb: job.thumb || null,
+      thumbUrl: minutes => job.thumb ? files.signedUrl(job.thumb, minutes) : null,
+      readThumb: () => job.thumb ? files.readBuffer(job.thumb) : null
     };
     const out = await POSTERS[platform](ctx);
     if (out.done) {
@@ -184,7 +236,7 @@ async function list(n = 40) {
 
 async function remove(id) {
   const job = await st.job(id);
-  if (job) await files.remove([job.video?.pathname, ...(job.sources || []).map(s => s.pathname)].filter(Boolean));
+  if (job) await files.remove([job.video?.pathname, job.thumb, ...(job.sources || []).map(s => s.pathname)].filter(Boolean));
   await st.removeJob(id);
 }
 

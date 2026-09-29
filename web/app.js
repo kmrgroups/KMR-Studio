@@ -27,7 +27,8 @@ const fmtDur = s => { s = Math.round(s || 0); return s >= 60 ? `${Math.floor(s /
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(b > 104857600 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return m + ' min ago'; const h = Math.round(m / 60); if (h < 24) return h + ' h ago'; return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
 
-const S = { st: null, page: 'post', clips: [], mode: 'join', ratio: 'auto', fit: 'blur', text: { title: '', description: '', hashtags: '' }, targets: null, jobs: [], open: {}, yt: {}, busy: false };
+const S = { st: null, page: 'post', clips: [], mode: 'join', ratio: 'auto', fit: 'blur', text: { title: '', description: '', hashtags: '' }, targets: null, jobs: [], open: {}, yt: {}, busy: false, ai: freshAi() };
+function freshAi() { return { state: 'idle', key: '', warn: '', thumbs: [], picks: [], thumb_text: '', sel: 0, own: null }; }
 let seq = 0;
 
 async function api(path, opts = {}) {
@@ -139,6 +140,8 @@ function pagePost() {
   const total = S.clips.reduce((a, c) => a + (c.duration || 0), 0);
   const tcount = [...S.targets].filter(isConnected).length;
   const outCount = joining ? 1 : ready;
+  const eachMany = S.mode === 'each' && n > 1;
+  const autoOn = S.st.settings.gemini_key && S.st.settings.auto_text !== false;
   return `<div class="page-head"><div><p class="eyebrow">Upload and post</p><h1>Post your videos</h1><p>Add your Google Flow clips or any video. Post each one, or join them into one longer video.</p></div></div>
   ${anyAcc ? '' : `<div class="banner"><span>Connect your accounts first, so KMR Studio can post for you.</span><a class="btn primary sm" href="#profiles">Connect accounts</a></div>`}
   <section class="panel">
@@ -157,12 +160,14 @@ function pagePost() {
     </div>` : ''}
   </section>
   <section class="panel">
-    <div class="panel-head"><div><h2><span class="step-no">2</span>Title and caption</h2><p>${S.mode === 'each' && n > 1 ? 'Each video uses its own title (above). The caption and hashtags go on all of them.' : 'Used on every platform. X gets the title and first hashtags.'}</p></div>
-      <button class="btn sm" data-act="ai" ${S.st.settings.gemini_key ? '' : 'title="Add a free Gemini key in Settings to use this"'}>${icon('spark')}Write with AI</button></div>
+    <div class="panel-head"><div><h2><span class="step-no">2</span>Title, caption and thumbnail</h2><p>${eachMany ? (autoOn ? 'The AI watches each video and writes its own title, caption, hashtags and thumbnail while posting. Type below only what you want on all of them.' : 'Each video uses its own title (above). The caption and hashtags go on all of them.') : 'The AI watches your video and fills these in. Change anything you like.'}</p></div>
+      ${eachMany ? '' : `<button class="btn sm" data-act="ai" ${ready && !up && S.ai.state !== 'running' ? '' : 'disabled'}>${icon('spark')}${S.ai.state === 'done' ? 'Write again' : 'Write with AI'}</button>`}</div>
+    ${S.ai.state === 'running' ? `<div class="ai-note"><span class="spin"></span> AI is watching your video and writing the title, caption, hashtags and thumbnails… (about 20 seconds)</div>` : S.ai.warn ? `<div class="ai-note warn">${esc(S.ai.warn)}${/Gemini key/.test(S.ai.warn) ? ' <a href="#settings">Open Settings</a>' : ''}</div>` : ''}
     <div class="form-grid">
       ${S.mode === 'each' && n > 1 ? '' : `<label class="field wide"><span class="label">Title</span><input id="t-title" maxlength="100" value="${esc(S.text.title)}" placeholder="${esc(S.clips[0] ? baseName(S.clips[0].name) : 'What is this video about?')}"></label>`}
       <label class="field wide"><span class="label">Caption</span><textarea id="t-desc" maxlength="4500" placeholder="A few lines about the video, and a call to follow">${esc(S.text.description)}</textarea></label>
       <label class="field wide"><span class="label">Hashtags</span><input id="t-tags" value="${esc(S.text.hashtags)}" placeholder="#ai #manufacturing #kmr"></label>
+      ${eachMany || !n ? '' : thumbPicker()}
     </div>
   </section>
   <section class="panel">
@@ -172,6 +177,18 @@ function pagePost() {
   </section>
   <div class="post-bar"><span class="muted small">${up ? `Uploading ${up} video${up > 1 ? 's' : ''}…` : ready ? `${outCount} video${outCount === 1 ? '' : 's'} → ${tcount} account${tcount === 1 ? '' : 's'}` : 'Add a video to start'}</span>
     <button class="btn primary big" data-act="post" ${!ready || up || !tcount ? 'disabled' : ''}>${icon('upload')}Post now</button></div>`;
+}
+function thumbPicker() {
+  const a = S.ai;
+  const tiles = a.thumbs.map((d, i) => `<button class="th ${a.sel === i ? 'on' : ''}" data-th="${i}" aria-label="Thumbnail ${i + 1}"><img src="${d}" alt=""></button>`).join('')
+    + (a.own ? `<button class="th ${a.sel === 'own' ? 'on' : ''}" data-th="own" aria-label="Your picture"><img src="${a.own}" alt=""></button>` : '');
+  const waiting = a.state === 'running' ? '<div class="th ph"><span class="spin"></span></div>'.repeat(3) : '';
+  return `<div class="field wide"><span class="label">Thumbnail${a.thumbs.length ? ' (tap to choose)' : ''}</span>
+    ${tiles || waiting ? `<div class="thumbs">${tiles}${waiting}</div>` : '<p class="muted small" style="margin:0">Made by the AI right after the upload, or while posting.</p>'}
+    <div class="btn-row" style="margin-top:8px">
+      <label class="btn sm">${icon('upload')}Use my picture<input type="file" id="own-th" accept="image/*" hidden></label>
+      <button class="btn sm ${a.sel === 'none' ? 'primary' : 'quiet'}" data-th="none">No thumbnail</button></div>
+    ${a.thumbs.length ? `<div class="copyline" style="margin-top:8px"><input id="th-words" class="th-words" maxlength="40" value="${esc(a.thumb_text)}" aria-label="Words on the thumbnail"><button class="btn sm" data-act="remake">Change words</button></div>` : ''}</div>`;
 }
 const baseName = n => String(n || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
 function clipRow(c, i, n) {
@@ -212,20 +229,21 @@ function bindPost() {
   $$('[data-ratio]').forEach(b => b.onclick = () => { S.ratio = b.dataset.ratio; rerenderMain(); });
   $$('[data-fit]').forEach(b => b.onclick = () => { S.fit = b.dataset.fit; rerenderMain(); });
   $$('[data-move]').forEach(b => b.onclick = () => { saveText(); const i = S.clips.findIndex(c => c.key === b.dataset.k), j = i + Number(b.dataset.move); [S.clips[i], S.clips[j]] = [S.clips[j], S.clips[i]]; rerenderMain(); });
-  $$('[data-remove]').forEach(b => b.onclick = () => { saveText(); const c = S.clips.find(x => x.key === b.dataset.remove); if (!c) return; c.abort?.abort(); if (c.pathname) api('/upload/discard', { body: { pathnames: [c.pathname] } }).catch(() => {}); URL.revokeObjectURL(c.url); S.clips = S.clips.filter(x => x !== c); rerenderMain(); });
+  $$('[data-remove]').forEach(b => b.onclick = () => { saveText(); const c = S.clips.find(x => x.key === b.dataset.remove); if (!c) return; c.abort?.abort(); if (c.pathname) api('/upload/discard', { body: { pathnames: [c.pathname] } }).catch(() => {}); URL.revokeObjectURL(c.url); S.clips = S.clips.filter(x => x !== c); if (!S.clips.length) S.ai = freshAi(); rerenderMain(); });
   $$('[data-target]').forEach(i => i.onchange = () => { saveText(); i.checked ? S.targets.add(i.dataset.target) : S.targets.delete(i.dataset.target); rerenderMain(); });
   $$('[data-prof-all]').forEach(b => b.onclick = () => { saveText(); const p = S.st.profiles.find(x => x.id === b.dataset.profAll); const ids = PL.filter(([k]) => p[k].ok).map(([k]) => `${p.id}:${k}`); const all = ids.every(t => S.targets.has(t)); ids.forEach(t => all ? S.targets.delete(t) : S.targets.add(t)); rerenderMain(); });
   const allAct = on => { saveText(); S.st.profiles.forEach(p => PL.forEach(([k]) => { if (p[k].ok) on ? S.targets.add(`${p.id}:${k}`) : S.targets.delete(`${p.id}:${k}`); })); rerenderMain(); };
   const a1 = $('[data-act="all-on"]'), a0 = $('[data-act="all-off"]');
   if (a1) a1.onclick = () => allAct(true); if (a0) a0.onclick = () => allAct(false);
-  $('[data-act="ai"]').onclick = e => busy(e.currentTarget, async () => {
-    saveText();
-    const about = S.text.title || (S.clips[0] ? baseName(S.clips[0].name) : '');
-    const r = await api('/ai/write', { body: { about, name: S.clips[0]?.name } });
-    if (!(S.mode === 'each' && S.clips.length > 1)) S.text.title = r.title;
-    S.text.description = r.description; S.text.hashtags = (r.hashtags || []).join(' ');
-    rerenderMain(); toast('Written. Change anything you like.');
+  const ai = $('[data-act="ai"]'); if (ai) ai.onclick = () => { saveText(); runPreview(true); };
+  $$('[data-th]').forEach(b => b.onclick = () => { const v = b.dataset.th; S.ai.sel = v === 'none' || v === 'own' ? v : Number(v); rerenderMain(); });
+  const own = $('#own-th'); if (own) own.onchange = () => ownThumb(own.files[0]);
+  const rm = $('[data-act="remake"]'); if (rm) rm.onclick = e => busy(e.currentTarget, async () => {
+    const words = $('#th-words').value.trim();
+    const r = await api('/work', { body: { kind: 'preview', pathnames: previewPaths(), ratio: previewRatio(), picks: S.ai.picks, thumb_text: words } });
+    S.ai.thumbs = r.thumbs; S.ai.thumb_text = r.thumb_text; if (S.ai.sel === 'none') S.ai.sel = 0; rerenderMain();
   });
+  maybePreview();
   $('[data-act="post"]').onclick = e => busy(e.currentTarget, doPost);
 }
 
@@ -284,6 +302,55 @@ async function upload(c) {
   if (S.page === 'post') rerenderMain();
 }
 
+// ---- AI preview (runs by itself once the videos are uploaded) ----
+const previewPaths = () => readyClips().map(c => c.pathname);
+const previewRatio = () => S.mode === 'join' && S.clips.length > 1 ? S.ratio : 'auto';
+const previewKey = () => previewPaths().join('|') + '#' + previewRatio();
+function maybePreview() {
+  const n = S.clips.length, s = S.st.settings;
+  if (!n || S.clips.some(c => c.status !== 'ready') || (S.mode === 'each' && n > 1)) return;
+  if (S.ai.state === 'running' || S.ai.key === previewKey()) return;
+  if (s.auto_text === false && s.auto_thumb === false) return;
+  runPreview(false);
+}
+async function runPreview(force) {
+  const key = previewKey();
+  S.ai = { ...S.ai, state: 'running', key, warn: '' };
+  rerenderMain();
+  try {
+    const r = await api('/work', { body: { kind: 'preview', pathnames: previewPaths(), ratio: previewRatio(), hint: S.text.title || '' } });
+    if (S.ai.key !== key) return; // the videos changed meanwhile
+    saveText();
+    const fill = (k, v) => { if (v && (force || !String(S.text[k] || '').trim())) S.text[k] = v; };
+    if (force || S.st.settings.auto_text !== false) { fill('title', r.title); fill('description', r.description); fill('hashtags', (r.hashtags || []).join(' ')); }
+    S.ai = { ...S.ai, state: 'done', thumbs: r.thumbs || [], picks: r.picks || [], thumb_text: r.thumb_text || '', warn: r.warn || '', sel: S.ai.sel === 'own' ? 'own' : (S.st.settings.auto_thumb === false && !force ? 'none' : 0) };
+  } catch (e) {
+    if (S.ai.key !== key) return;
+    S.ai = { ...S.ai, state: 'done', warn: 'The AI preview did not work: ' + e.message + ' You can still post; the AI tries again while posting.' };
+  }
+  if (S.page === 'post') rerenderMain();
+}
+function ownThumb(f) {
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const c = S.clips[0] || {}, vertical = (c.h || 16) > (c.w || 9) && S.ratio !== '16:9' || S.ratio === '9:16';
+    const W = vertical ? 1080 : 1280, H = vertical ? 1920 : 720;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'), sc = Math.max(W / img.width, H / img.height);
+    g.drawImage(img, (W - img.width * sc) / 2, (H - img.height * sc) / 2, img.width * sc, img.height * sc);
+    S.ai.own = cv.toDataURL('image/jpeg', 0.86); S.ai.sel = 'own'; URL.revokeObjectURL(img.src); rerenderMain();
+  };
+  img.onerror = () => toast('That picture could not be opened. Use a JPG or PNG.', true);
+  img.src = URL.createObjectURL(f);
+}
+function chosenThumb() {
+  const a = S.ai;
+  if (a.sel === 'none') return 'none';
+  if (a.sel === 'own') return a.own || undefined;
+  return a.thumbs[a.sel] || undefined; // nothing chosen: the AI makes one while posting
+}
+
 async function doPost() {
   saveText();
   const clips = readyClips();
@@ -292,14 +359,14 @@ async function doPost() {
   const body = {
     mode: S.mode === 'join' && clips.length > 1 ? 'join' : 'each',
     items: clips.map(c => ({ pathname: c.pathname, name: c.name, size: c.size, title: c.title || '', description: S.text.description, hashtags: S.text.hashtags })),
-    join: { title: S.text.title, description: S.text.description, hashtags: S.text.hashtags, ratio: S.ratio, fit: S.fit },
+    join: { title: S.text.title, description: S.text.description, hashtags: S.text.hashtags, ratio: S.ratio, fit: S.fit, thumb_data: chosenThumb(), hint: S.text.title },
     targets
   };
-  if (body.mode === 'each' && clips.length === 1) body.items[0].title = S.text.title;
+  if (body.mode === 'each' && clips.length === 1) Object.assign(body.items[0], { title: S.text.title, thumb_data: chosenThumb() });
   const r = await api('/posts', { body });
   api('/settings', { body: { default_targets: targets } }).then(x => S.st.settings = x.settings).catch(() => {});
   S.clips.forEach(c => URL.revokeObjectURL(c.url));
-  S.clips = []; S.text = { title: '', description: '', hashtags: '' };
+  S.clips = []; S.text = { title: '', description: '', hashtags: '' }; S.ai = freshAi();
   toast(r.jobs.length > 1 ? `${r.jobs.length} posts started. Follow them in History.` : 'Posting started. Follow it in History.');
   S.jobs = [...r.jobs.map(j => ({ ...j, results: {} })), ...S.jobs.filter(j => !r.jobs.some(n => n.id === j.id))];
   location.hash = '#history';
@@ -338,7 +405,7 @@ function jobCard(j) {
   const wide = v && v.w > v.h;
   const last = (j.log || []).slice(-1)[0];
   return `<section class="panel"><div class="job">
-    ${v && !j.files_removed ? `<video class="thumb ${wide ? 'wide' : ''}" src="/api/preview?p=${encodeURIComponent(v.pathname)}#t=0.5" controls preload="none" playsinline></video>` : `<div class="thumb ${wide ? 'wide' : ''}">${icon('film')}</div>`}
+    ${v && !j.files_removed ? `<video class="thumb ${wide ? 'wide' : ''}" src="/api/preview?p=${encodeURIComponent(v.pathname)}#t=0.5" ${j.thumb ? `poster="/api/preview?p=${encodeURIComponent(j.thumb)}"` : ''} controls preload="none" playsinline></video>` : j.thumb ? `<img class="thumb ${wide ? 'wide' : ''}" src="/api/preview?p=${encodeURIComponent(j.thumb)}" alt="">` : `<div class="thumb ${wide ? 'wide' : ''}">${icon('film')}</div>`}
     <div style="min-width:0">
       <div class="job-head"><div style="min-width:0"><h3>${esc(j.title)}</h3><div class="muted small">${ago(j.created)} · ${j.mode === 'join' ? `${j.sources.length} videos joined` : '1 video'}${v ? ` · ${fmtDur(v.duration)} · ${v.w}×${v.h}` : ''}</div></div>
         <div class="btn-row"><span class="pill ${cls}"><i class="dot"></i>${label}</span>
@@ -433,6 +500,13 @@ function pageSettings() {
   ${box('LinkedIn app', s.li_client_id, 'Free. Posts go to each person\'s own LinkedIn profile.', ['<a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">LinkedIn Developers</a>, your app, Products: add <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>.', `Auth tab, Authorized redirect URLs: add <code>${esc(cb)}</code>`, 'Copy the Client ID and secret here.'], f('li_client_id', 'Client ID') + f('li_client_secret', 'Client secret', true))}
   ${box('X app (optional, paid by X)', s.x_client_id, 'X charges about US$0.02 per video post from prepaid credits.', ['<a href="https://console.x.com" target="_blank" rel="noopener">console.x.com</a>, your app, User authentication: OAuth 2.0, <b>Web App</b>, <b>Read and write</b>.', `Callback URL: <code>${esc(cb)}</code>, Website: <code>https://www.kmr-groups.com</code>`, 'Copy the OAuth 2.0 Client ID and secret here.'], f('x_client_id', 'Client ID') + f('x_client_secret', 'Client secret', true))}
   ${box('Gemini (optional, free)', s.gemini_key, 'Powers the "Write with AI" button for titles, captions and hashtags.', ['<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>: <b>Create API key</b>, copy it here.'], f('gemini_key', 'Gemini API key', true))}
+  <section class="panel"><div class="panel-head"><div><h2>AI writing and thumbnails</h2><p>Needs the free Gemini key above.</p></div></div>
+    <div class="form-grid">
+      <label class="check-row"><input type="checkbox" data-key="auto_text" ${s.auto_text !== false ? 'checked' : ''}> AI writes the title, caption and hashtags by watching the video</label>
+      <label class="check-row"><input type="checkbox" data-key="auto_thumb" ${s.auto_thumb !== false ? 'checked' : ''}> Make a thumbnail with a headline from the best moment</label>
+      <label class="field"><span class="label">Language for titles, captions and thumbnails</span><select data-key="text_language">${['English', 'Tamil', 'Tamil and English mixed', 'Hindi'].map(l => `<option ${s.text_language === l ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div></section>
   <section class="panel"><div class="panel-head"><h2>Posting</h2></div>
     <div class="form-grid"><label class="field"><span class="label">YouTube visibility</span><select data-key="yt_privacy">${[['public', 'Public'], ['unlisted', 'Unlisted (only with the link)'], ['private', 'Private']].map(([k, l]) => `<option value="${k}" ${s.yt_privacy === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
     <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div></section>
@@ -447,7 +521,7 @@ document.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t || S.page !== 'settings') return;
   if (t.hasAttribute('data-save')) busy(t, async () => {
     const patch = {};
-    $$('[data-key]', t.closest('.panel')).forEach(i => { if (i.value !== '' || !/secret|key$/.test(i.dataset.key) || i.dataset.key === 'yt_privacy') patch[i.dataset.key] = i.value; });
+    $$('[data-key]', t.closest('.panel')).forEach(i => { if (i.type === 'checkbox') { patch[i.dataset.key] = i.checked; return; } if (i.value !== '' || !/secret|key$/.test(i.dataset.key) || i.dataset.key === 'yt_privacy') patch[i.dataset.key] = i.value; });
     for (const k of Object.keys(patch)) if (/(_secret|gemini_key)$/.test(k) && patch[k] === '') delete patch[k];
     S.st.settings = (await api('/settings', { body: patch })).settings; rerenderMain(); toast('Saved.');
   });

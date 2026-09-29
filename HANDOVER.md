@@ -9,6 +9,8 @@
 > - Login: env `KMR_PASSWORD`, HMAC cookie. Test: `dev/server.js` simulates Vercel, Blob and Redis (`KMR_FAKE_DIR`).
 > - Deleted videos: once all targets post, and failed ones after 7 days (storage is 1 GB).
 >
+> **2.1.0:** `cloud/describe.js` (Gemini with inline JPEG frames and MP3 audio; thumbnails via ffmpeg `ass` filter with fonts in `cloud/fonts`: Anton, Noto Sans Tamil, Noto Sans Devanagari, read by name so Vercel bundles them) and `cloud/preview.js` (Post page preview, POST /api/work {kind:'preview'} for the signed-in owner, returns data URLs). Jobs carry `auto` (which fields the AI may fill), `thumb_mode` and `thumb` (out/<id>-thumb.jpg). Settings `auto_text`, `auto_thumb`, `text_language`.
+>
 > Everything below describes the older PC version (1.x), still in the repo but not deployed.
 
 

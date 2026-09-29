@@ -90,7 +90,9 @@ async function postInstagram(ctx) {
   const m = profile.meta;
   if (!m.ig_id) throw new Error('No Instagram account is linked to this Facebook Page.');
   if (!state.container) {
-    const c = await gpost(`${m.ig_id}/media`, { media_type: 'REELS', video_url: await videoUrl(180), caption: caption(job, 2200), share_to_feed: 'true', access_token: m.page_token });
+    const params = { media_type: 'REELS', video_url: await videoUrl(180), caption: caption(job, 2200), share_to_feed: 'true', access_token: m.page_token };
+    if (ctx.thumb) params.cover_url = await ctx.thumbUrl(180);
+    const c = await gpost(`${m.ig_id}/media`, params);
     return { wait: { container: c.id }, msg: 'Instagram is downloading the video' };
   }
   while (timeLeft() > 20000) {
@@ -119,10 +121,22 @@ async function postFacebook(ctx) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error || j.success === false) throw new Error(metaError(j, 'Facebook could not fetch the video (' + r.status + ')'));
     await gpost(`${m.page_id}/video_reels`, { upload_phase: 'finish', video_id: start.video_id, video_state: 'PUBLISHED', description: caption(job, 5000), title: String(job.title || '').slice(0, 250), access_token: m.page_token });
-    return { done: { id: start.video_id, url: `https://www.facebook.com/reel/${start.video_id}` } };
+    return { done: { id: start.video_id, url: `https://www.facebook.com/reel/${start.video_id}`, note: await setThumb(ctx, start.video_id, m.page_token) } };
   }
   const j = await gpost(`${m.page_id}/videos`, { file_url: url, title: String(job.title || '').slice(0, 250), description: caption(job, 5000), access_token: m.page_token }, 'graph-video.facebook.com');
-  return { done: { id: j.id, url: `https://www.facebook.com/${m.page_id}/videos/${j.id}` } };
+  return { done: { id: j.id, url: `https://www.facebook.com/${m.page_id}/videos/${j.id}`, note: await setThumb(ctx, j.id, m.page_token) } };
+}
+// Facebook takes the thumbnail after the video; if it refuses, Facebook picks one itself.
+async function setThumb(ctx, videoId, token) {
+  if (!ctx.thumb) return '';
+  try {
+    const fd = new FormData();
+    fd.append('access_token', token); fd.append('is_preferred', 'true');
+    fd.append('source', new Blob([await ctx.readThumb()], { type: 'image/jpeg' }), 'thumb.jpg');
+    const r = await fetch(`https://graph.facebook.com/${await V()}/${videoId}/thumbnails`, { method: 'POST', body: fd, signal: AbortSignal.timeout(60000) });
+    const j = await r.json().catch(() => ({}));
+    return r.ok && !j.error ? '' : 'Facebook chose its own thumbnail.';
+  } catch { return 'Facebook chose its own thumbnail.'; }
 }
 
 module.exports = { connect, check, disconnect, postInstagram, postFacebook, caption };

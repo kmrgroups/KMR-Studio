@@ -6,7 +6,7 @@ async function body(req) {
   if (req.body !== undefined && req.body !== null && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
   if (typeof req.body === 'string') { try { return JSON.parse(req.body || '{}'); } catch { return {}; } }
   const chunks = [];
-  for await (const c of req) { chunks.push(c); if (chunks.reduce((a, b) => a + b.length, 0) > 1e6) throw new Error('Request too large'); }
+  for await (const c of req) { chunks.push(c); if (chunks.reduce((a, b) => a + b.length, 0) > 4e6) throw new Error('Request too large'); }
   try { return JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { return {}; }
 }
 function send(res, status, obj, headers = {}) {
