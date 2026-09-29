@@ -449,7 +449,7 @@ function profileCard(p) {
   const connected = k => `<button class="btn sm" data-check="${p.id}:${k}">Check</button><button class="btn sm quiet danger" data-disc="${p.id}:${k}">Disconnect</button>`;
   // YouTube
   const y = S.yt[p.id];
-  const ytBody = y && y.state === 'waiting' ? `<div class="code-box"><span class="code-big">${esc(y.code)}</span><div><p style="margin:0">Open <a href="${esc(y.url)}" target="_blank" rel="noopener">${esc(y.url)}</a>, sign in with the Google account of the channel and type this code.</p><p class="muted small" style="margin:4px 0 0"><span class="spin"></span> Waiting for Google…</p></div></div>` : '';
+  const ytBody = y && y.state === 'waiting' ? `<div class="code-box"><span class="code-big">${esc(y.code)}</span><div><p style="margin:0">Open <a href="${esc(y.url)}" target="_blank" rel="noopener">${esc(y.url)}</a>, sign in with the Google account of the channel and type this code.</p><p class="muted small" style="margin:4px 0 0"><span class="spin"></span> Waiting for Google… <button class="btn sm quiet" data-ytcheck="${p.id}">Check now</button></p><p class="muted small" style="margin:4px 0 0">If Google says "Access blocked", add this Gmail as a test user (Google Cloud, Audience) or publish the app, then press Connect again.</p></div></div>` : '';
   const ytBtns = p.youtube.ok ? connected('youtube') : `<button class="btn sm primary" data-yt="${p.id}" ${s.yt_client_id ? '' : 'disabled title="Save the Google keys in Settings first"'}>Connect</button>`;
   // Meta
   const open = S.open[p.id + ':meta'];
@@ -484,18 +484,26 @@ document.addEventListener('click', e => {
   if (d.disc) { const [pid, k] = d.disc.split(':'); if (confirm('Disconnect this account? You can connect it again any time.')) busy(t, async () => { await api(`/profiles/${pid}/${k}/disconnect`, { body: {} }); S.targets.delete(`${pid}:${k}`); if (k === 'meta') { S.targets.delete(`${pid}:facebook`); S.targets.delete(`${pid}:instagram`); } await refreshState(); rerenderMain(); }); }
   if (d.meta) busy(t, async () => { const tok = $('#tok-' + d.meta).value.trim(); const pg = $('#page-' + d.meta); const r = await api(`/profiles/${d.meta}/meta/connect`, { body: { user_token: tok, page_id: pg ? pg.value : undefined } }); S.open[d.meta + ':meta'] = false; await refreshState(); rerenderMain(); toast(r.message); });
   if (d.oauth) { const [pid, k] = d.oauth.split(':'); busy(t, async () => { const r = await api(`/profiles/${pid}/${k}/start`); location.href = r.url; }); }
-  if (d.yt) busy(t, async () => { S.yt[d.yt] = await api(`/profiles/${d.yt}/youtube/start`, { body: {} }); rerenderMain(); ytPoll(d.yt); });
+  if (d.yt) busy(t, async () => { const first = !S.yt[d.yt]; S.yt[d.yt] = { ...await api(`/profiles/${d.yt}/youtube/start`, { body: {} }), polling: true }; rerenderMain(); if (first) ytPoll(d.yt); });
+  if (d.ytcheck) busy(t, async () => { await ytPoll(d.ytcheck, 0, true); if (S.yt[d.ytcheck]) toast('Google has not seen the code yet. Enter it at google.com/device and press Allow.'); });
   if (d.own) busy(t, async () => { await api(`/profiles/${d.own}/youtube/keys`, { body: { client_id: $('#own-id-' + d.own).value, client_secret: $('#own-sec-' + d.own).value } }); await refreshState(); rerenderMain(); toast('Saved. Press Connect for YouTube to sign in with the new keys.'); });
   if (d.ownClear) busy(t, async () => { await api(`/profiles/${d.ownClear}/youtube/keys`, { body: {} }); await refreshState(); rerenderMain(); });
 });
-async function ytPoll(pid) {
-  await new Promise(r => setTimeout(r, 5000));
-  let r; try { r = await api(`/profiles/${pid}/youtube/poll`); } catch (e) { toast(e.message, true); delete S.yt[pid]; return; }
-  if (r.state === 'waiting') { S.yt[pid] = r; return ytPoll(pid); }
+async function ytPoll(pid, fails = 0, now) {
+  if (!now) await new Promise(r => setTimeout(r, 5000));
+  if (!S.yt[pid]) return; // connected meanwhile, or Connect pressed again
+  let r;
+  try { r = await api(`/profiles/${pid}/youtube/poll`); }
+  catch (e) { // a network hiccup: keep checking a few times before giving up
+    if (now) throw e;
+    if (fails < 5) return ytPoll(pid, fails + 1);
+    delete S.yt[pid]; if (S.page === 'profiles') rerenderMain(); toast('Stopped waiting for Google: ' + e.message + ' Press Connect again.', true); return;
+  }
+  if (r.state === 'waiting') { S.yt[pid] = { ...r, polling: true }; return now ? null : ytPoll(pid); }
   delete S.yt[pid];
   await refreshState();
   if (S.page === 'profiles') rerenderMain();
-  r.state === 'connected' ? toast('YouTube connected: ' + (r.channel || 'your channel')) : toast(r.error ? 'Google said: ' + r.error : 'The code expired. Press Connect again.', true);
+  r.state === 'connected' ? toast('YouTube connected: ' + (r.channel || 'your channel')) : toast(r.error || 'The code expired. Press Connect again.', true);
 }
 
 // ---------- Settings ----------

@@ -46,7 +46,8 @@ async function poll(pid) {
     return { state: 'waiting', code: d.code, url: d.url };
   }
   await kv.del('dev:' + pid);
-  return { state: 'error', error: j.error_description || j.error || 'Google did not answer' };
+  const why = j.error === 'access_denied' ? 'Google blocked or cancelled the sign-in. If it said "Access blocked", add this Gmail as a test user in Google Cloud (Google Auth Platform, Audience, Test users) or publish the app, then press Connect again.' : j.error === 'expired_token' ? 'The code expired. Press Connect again.' : (j.error_description || j.error || 'Google did not answer');
+  return { state: 'error', error: why };
 }
 
 async function token(pid) {
