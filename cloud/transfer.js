@@ -3,7 +3,7 @@
 const st = require('./state');
 const kv = require('./kv');
 
-const KEYS = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb'];
+const KEYS = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'veo_key_1', 'veo_key_2', 'veo_limit'];
 const ACC = {
   yt: ['refresh', 'channel', 'channel_id', 'client_id', 'client_secret'],
   meta: ['user_token', 'page_id', 'page_name', 'page_token', 'ig_id', 'ig_username', 'pages', 'expires', 'missing'],
@@ -51,6 +51,12 @@ async function importData(data, base) {
     out.profiles.push(name + (n ? ` (${n} account${n > 1 ? 's' : ''})` : ''));
   }
   await kv.setJ('profiles', list);
+  if (Array.isArray(data.schedules) && data.schedules.length) { // autopilots from a cloud backup
+    const have = await kv.getJ('schedules') || [];
+    for (const sc of data.schedules.slice(0, 10)) if (sc && sc.id && !have.some(x => x.id === sc.id)) have.push(sc);
+    await kv.setJ('schedules', have.slice(0, 10));
+    out.schedules = data.schedules.length;
+  }
   if (keys.telegram_token && base) { // point the bot at the cloud studio at once
     try { await require('./telegram').connect(base, keys.telegram_token); out.telegram = keys.telegram_chat_id ? 'connected' : 'needs start'; } catch (e) { out.telegram = e.message; }
   }
@@ -65,13 +71,14 @@ async function exportData() {
     kind: 'kmr-studio-backup', version: 1, created: new Date().toISOString(),
     note: 'Contains your app keys and account logins. Keep this file private. Import it in KMR Studio, Settings, Bring keys from a file.',
     settings: { ...pick(s, KEYS), default_targets: s.default_targets || [] },
-    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x), mapp: pick(p.mapp, ACC.mapp) }))
+    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x), mapp: pick(p.mapp, ACC.mapp) })),
+    schedules: await kv.getJ('schedules') || []
   };
 }
 
 // The page sends only this part of the laptop's db.json (it can be many MB because of video history).
 function slim(db) {
-  return { settings: db.settings || {}, profiles: db.profiles || null };
+  return { settings: db.settings || {}, profiles: db.profiles || null, schedules: db.schedules || null };
 }
 
 module.exports = { importData, exportData, slim };

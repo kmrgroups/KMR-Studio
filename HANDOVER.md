@@ -15,6 +15,8 @@
 >
 > **2.3.0:** Telegram in the cloud (`cloud/telegram.js`): webhook at /api/telegram (secret header), /start <code> links the chat, review message with Approve/Reject (callback ap:/rj:), result message after posting. Jobs have `approve`; after prepare they wait in status `review` (approve/reject also in History). Settings `telegram_token`, `telegram_chat_id`, `approve_default`; imported from the laptop db.json. Gemini: `cloud/gemini.js` lists models, asks two at once with thinkingBudget 0; Groq (`cloud/groq.js`) is the backup (Whisper + text model).
 >
+> **2.5.0 Autopilot:** `cloud/autopilot.js` keeps schedules in kv `schedules` (topics used in order via `ap_next:<id>`, recent titles `ap_recent:<id>`; times in India time). `vercel.json` has 24 daily crons (Hobby allows daily only) hitting /api/cron every hour; `tick` starts due slots (3 h catch-up, `slot:<id>:<date time>` SET NX) and re-triggers stuck `making` jobs. A job in status `making` runs `make` stages in /api/work `{kind:'make'}`: script (Gemini JSON, Groq backup) -> veo_start/veo_wait (`cloud/veo.js`, keys `veo_key_1/2`, monthly spend per key in `veo:<YYYY-MM>:<tail>`, limit `veo_limit`) or pictures (Pollinations via `cloud/compose.js`) -> voice (`cloud/tts.js`, Gemini TTS) -> render (`compose.build`: clips or zooming pictures, ASS subtitles, voice) -> `out/<id>-raw.mp4`, then the normal `prepare` (thumbnail from `job.thumb_text`, Telegram OK, posting). Veo errors fall back to pictures. Optional env `CRON_SECRET`. Test: scratchpad `aptest.js`.
+>
 > Everything below describes the older PC version (1.x), still in the repo but not deployed.
 
 

@@ -138,7 +138,7 @@ async function autoFill(id, r, dir) {
     try {
       const [W, H] = describe.thumbSize(r.info.w, r.info.h);
       const t = a ? a.frames[a.best].t : Math.min(r.info.duration / 3, 3);
-      const words = a?.thumb_text || String(patch.title || job.title).split(/\s+/).slice(0, 4).join(' ');
+      const words = a?.thumb_text || job.thumb_text || String(patch.title || job.title).split(/\s+/).slice(0, 4).join(' ');
       const out = await describe.thumbnail(r.file, t, words, W, H, path.join(dir, 'thumb.jpg'));
       patch.thumb = `out/${id}-thumb.jpg`;
       await files.putFile(patch.thumb, out, 'image/jpeg');
@@ -236,6 +236,7 @@ async function reject(id) {
 async function retry(id, target, base) {
   const job = await st.job(id); if (!job) throw new Error('This post no longer exists.');
   if (job.files_removed) throw new Error('The video file was already removed from storage. Upload it again to post it.');
+  if (job.make && job.make.stage !== 'done' && !job.video) { await st.patchJob(id, { status: 'making', error: '' }); await st.log(id, 'Trying again'); await trigger(base, { kind: 'make', job: id }); return; }
   if (!job.video) { await st.patchJob(id, { status: 'preparing', error: '' }); await st.log(id, 'Trying again'); await trigger(base, { kind: 'prepare', job: id }); return; }
   const res = await st.results(id);
   const list = target ? [target] : job.targets.filter(t => res[t]?.status === 'failed' || (res[t]?.status === 'running' && Date.now() - (res[t].updated || 0) > 6 * 60000));
@@ -270,4 +271,4 @@ async function remove(id) {
   await st.removeJob(id);
 }
 
-module.exports = { create, prepare, postTarget, approve, reject, retry, list, remove, workKey, cleanTags, finishIfDone };
+module.exports = { create, prepare, postTarget, approve, reject, retry, list, remove, workKey, cleanTags, finishIfDone, trigger };

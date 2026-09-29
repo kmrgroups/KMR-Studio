@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.4.1';
+const VERSION = '2.5.0';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -57,6 +57,12 @@ module.exports = async function handler(req, res) {
     if (path === '/telegram' && M === 'POST') { // Telegram webhook (checked by its secret header)
       try { await require('../cloud/telegram').handleUpdate(req, await H.body(req), H.base(req)); } catch (e) { console.error('telegram', e.message); }
       return H.send(res, 200, { ok: true });
+    }
+    if (path === '/cron' && M === 'GET') { // the hourly clock for Autopilot (Vercel Cron)
+      const secret = process.env.CRON_SECRET;
+      if (secret && req.headers.authorization !== 'Bearer ' + secret) return H.send(res, 401, { error: 'Not allowed' });
+      if (!kv.ready()) return H.send(res, 200, { ok: false });
+      return H.send(res, 200, await require('../cloud/autopilot').tick(H.base(req)));
     }
     // ---- signed in only ----
     if (!await H.authed(req)) return H.send(res, 401, { error: 'Please sign in again.' });
@@ -116,6 +122,15 @@ module.exports = async function handler(req, res) {
       const data = await require('../cloud/transfer').exportData();
       return H.send(res, 200, data, { 'Content-Disposition': `attachment; filename="kmr-studio-backup-${new Date().toISOString().slice(0, 10)}.json"` });
     }
+    // autopilot
+    if (path === '/autopilot' && M === 'GET') {
+      const ap = require('../cloud/autopilot'), veo = require('../cloud/veo');
+      return H.send(res, 200, { schedules: await ap.schedules(), credit: await veo.status() });
+    }
+    if (path === '/autopilot' && M === 'POST') return H.send(res, 200, { schedule: await require('../cloud/autopilot').saveSchedule(b) });
+    if ((m = /^\/autopilot\/([\w]+)$/.exec(path)) && M === 'DELETE') { await require('../cloud/autopilot').removeSchedule(m[1]); return H.send(res, 200, { ok: true }); }
+    if ((m = /^\/autopilot\/([\w]+)\/run$/.exec(path)) && M === 'POST') { const j = await require('../cloud/autopilot').runNow(m[1], base); return H.send(res, 200, { job: j.id }); }
+    if (path === '/veo/test' && M === 'POST') return H.send(res, 200, { message: await require('../cloud/veo').test() });
     if (path === '/ai/write' && M === 'POST') return H.send(res, 200, await require('../cloud/ai').write(b));
 
     return H.send(res, 404, { error: 'Not found: ' + path });

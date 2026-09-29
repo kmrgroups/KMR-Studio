@@ -128,6 +128,14 @@ async function prepare(srcs, opts, dir, onStep = () => {}) {
   return { file: out, reused: false, info: await probe(out), ratio };
 }
 
+// Length in seconds of any media file (also sound-only files).
+async function durationOf(file) {
+  let out = '';
+  try { await run(['-hide_banner', '-i', file], { timeout: 30000 }); } catch (e) { out = e.log || ''; }
+  const d = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(out);
+  return d ? +d[1] * 3600 + +d[2] * 60 + parseFloat(d[3]) : 0;
+}
+
 function tmpDir(id) { const d = path.join(os.tmpdir(), 'kmr-' + id + '-' + Date.now()); fs.mkdirSync(d, { recursive: true }); return d; }
 
-module.exports = { probe, prepare, ratioOf, tmpDir, run, ffmpeg };
+module.exports = { probe, prepare, ratioOf, tmpDir, run, ffmpeg, durationOf };

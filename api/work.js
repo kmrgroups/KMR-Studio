@@ -18,7 +18,7 @@ module.exports = async function handler(req, res) {
     }
     if (req.headers['x-kmr-key'] !== await jobs.workKey()) return H.send(res, 403, { error: 'Not allowed' });
     const base = H.base(req);
-    const work = b.kind === 'prepare' ? jobs.prepare(b.job, base) : b.kind === 'post' ? jobs.postTarget(b.job, b.target, base) : null;
+    const work = b.kind === 'prepare' ? jobs.prepare(b.job, base) : b.kind === 'post' ? jobs.postTarget(b.job, b.target, base) : b.kind === 'make' ? require('../cloud/autopilot').make(b.job, base) : null;
     if (!work) return H.send(res, 400, { error: 'Unknown work' });
     const safe = work.catch(e => console.error('work failed', b, e));
     if (waitUntil) waitUntil(safe);

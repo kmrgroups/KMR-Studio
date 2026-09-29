@@ -103,15 +103,16 @@ function route() {
   if (q.get('msg')) toast(q.get('msg'));
   if (q.get('err')) toast(q.get('err'), true);
   if (q.get('msg') || q.get('err')) history.replaceState(null, '', '#' + (page || 'post'));
-  S.page = ['post', 'history', 'profiles', 'settings'].includes(page) ? page : 'post';
+  S.page = ['post', 'autopilot', 'history', 'profiles', 'settings'].includes(page) ? page : 'post';
   render();
   if (S.page === 'history') loadJobs();
+  if (S.page === 'autopilot') loadAuto();
 }
 window.addEventListener('hashchange', () => S.st?.authed && route());
 
-function activeCount() { return S.jobs.filter(j => j.status === 'preparing' || j.status === 'posting' || j.status === 'review').length; }
+function activeCount() { return S.jobs.filter(j => j.status === 'making' || j.status === 'preparing' || j.status === 'posting' || j.status === 'review').length; }
 function render() {
-  const nav = [['post', 'Post', 'upload'], ['history', 'History', 'clock'], ['profiles', 'Profiles', 'users'], ['settings', 'Settings', 'gear']];
+  const nav = [['post', 'Post', 'upload'], ['autopilot', 'Autopilot', 'spark'], ['history', 'History', 'clock'], ['profiles', 'Profiles', 'users'], ['settings', 'Settings', 'gear']];
   const count = activeCount();
   const link = ([k, l, i], cls) => `<a href="#${k}" class="${S.page === k ? 'on' : ''}">${icon(i)}<span>${l}</span>${k === 'history' && count ? `<span class="count">${count}</span>` : ''}</a>`;
   $('#app').innerHTML = `<div class="shell">
@@ -403,7 +404,7 @@ async function loadJobs() {
   rerenderMain();
   if (activeCount()) poll = setTimeout(loadJobs, 4000);
 }
-const JOB_PILL = { preparing: ['run', 'Preparing'], review: ['run', 'Waiting for your OK'], rejected: ['', 'Rejected'], posting: ['run', 'Posting'], done: ['ok', 'Posted'], partial: ['bad', 'Some failed'], failed: ['bad', 'Failed'] };
+const JOB_PILL = { making: ['run', 'Making the video'], preparing: ['run', 'Preparing'], review: ['run', 'Waiting for your OK'], rejected: ['', 'Rejected'], posting: ['run', 'Posting'], done: ['ok', 'Posted'], partial: ['bad', 'Some failed'], failed: ['bad', 'Failed'] };
 function pageHistory() {
   const jobs = S.jobs;
   return `<div class="page-head"><div><p class="eyebrow">History</p><h1>Your posts</h1><p>Live status for every account. Failed ones can be retried.</p></div>
@@ -418,7 +419,7 @@ function jobCard(j) {
     const [pid, pl] = t.split(':'); const p = profs.find(x => x.id === pid);
     const r = (j.results || {})[t] || {};
     const stale = r.status === 'running' && Date.now() - (r.updated || 0) > 6 * 60000;
-    const st = j.status === 'rejected' || (j.status === 'failed' && !j.video) ? ['bad', 'Not posted'] : j.status === 'review' ? ['', 'Waiting for OK'] : j.status === 'preparing' ? ['', 'Waiting'] : r.status === 'done' ? ['ok', 'Posted'] : r.status === 'failed' ? ['bad', 'Failed'] : r.status === 'running' ? ['run', 'Posting'] : ['', 'Waiting'];
+    const st = j.status === 'rejected' || (j.status === 'failed' && !j.video) ? ['bad', 'Not posted'] : j.status === 'review' ? ['', 'Waiting for OK'] : j.status === 'preparing' || j.status === 'making' ? ['', 'Waiting'] : r.status === 'done' ? ['ok', 'Posted'] : r.status === 'failed' ? ['bad', 'Failed'] : r.status === 'running' ? ['run', 'Posting'] : ['', 'Waiting'];
     const msg = r.status === 'done' ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${icon('link')} Open post</a>${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}`
       : r.status === 'failed' ? `<span class="err">${esc(r.error)}</span>` : stale ? '<span class="err">This seems stuck. Press Retry.</span>' : esc(r.msg || '');
     return `<div class="row">${plBadge(pl)}<div class="who"><b>${plName(pl)}</b> <span class="muted">· ${esc(p?.name || pid)}</span><div class="msg">${msg}</div></div>
@@ -429,12 +430,12 @@ function jobCard(j) {
   return `<section class="panel"><div class="job">
     ${v && !j.files_removed ? `<video class="thumb ${wide ? 'wide' : ''}" src="/api/preview?p=${encodeURIComponent(v.pathname)}#t=0.5" ${j.thumb ? `poster="/api/preview?p=${encodeURIComponent(j.thumb)}"` : ''} controls preload="none" playsinline></video>` : j.thumb ? `<img class="thumb ${wide ? 'wide' : ''}" src="/api/preview?p=${encodeURIComponent(j.thumb)}" alt="">` : `<div class="thumb ${wide ? 'wide' : ''}">${icon('film')}</div>`}
     <div style="min-width:0">
-      <div class="job-head"><div style="min-width:0"><h3>${esc(j.title)}</h3><div class="muted small">${ago(j.created)} · ${j.mode === 'join' ? `${j.sources.length} videos joined` : '1 video'}${v ? ` · ${fmtDur(v.duration)} · ${v.w}×${v.h}` : ''}</div></div>
+      <div class="job-head"><div style="min-width:0"><h3>${esc(j.title)}</h3><div class="muted small">${ago(j.created)} · ${j.autopilot ? 'Autopilot' : j.mode === 'join' ? `${j.sources.length} videos joined` : '1 video'}${v ? ` · ${fmtDur(v.duration)} · ${v.w}×${v.h}` : ''}</div></div>
         <div class="btn-row"><span class="pill ${cls}"><i class="dot"></i>${label}</span>
           ${j.status === 'failed' && !j.video && !j.files_removed ? `<button class="btn sm" data-retry="${j.id}">${icon('refresh')}Retry</button>` : ''}
           <button class="btn icon quiet" data-del="${j.id}" aria-label="Delete">${icon('trash')}</button></div></div>
       ${j.status === 'review' ? `<div class="banner" style="margin:10px 0 0"><span>Check the video, title and thumbnail, then approve.${S.st.settings.telegram_chat_id ? ' You can also approve in Telegram.' : ''}</span><div class="btn-row"><button class="btn primary sm" data-approve="${j.id}">${icon('check')}Approve and post</button><button class="btn sm quiet danger" data-reject="${j.id}">Reject</button></div></div>` : ''}
-      ${j.error ? `<p class="err small">${esc(j.error)}</p>` : last && j.status === 'preparing' ? `<p class="small muted">${esc(last.msg)}</p>` : ''}
+      ${j.error ? `<p class="err small">${esc(j.error)}</p>` : last && (j.status === 'preparing' || j.status === 'making') ? `<p class="small muted">${esc(last.msg)}</p>` : ''}
       <div class="rows">${rows}</div>
       ${j.files_removed && j.status !== 'done' ? '<p class="muted small">The video file was cleared from storage after 7 days. Upload it again to post it.</p>' : ''}
     </div></div></section>`;
@@ -592,9 +593,9 @@ document.addEventListener('change', async e => {
     let db;
     try { db = JSON.parse(await f.text()); } catch { throw new Error('This file could not be read. Choose db.json from the data folder of KMR Studio on the laptop.'); }
     const s = db.settings || {};
-    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
+    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'telegram_token', 'telegram_chat_id', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets', 'veo_key_1', 'veo_key_2', 'veo_limit',
       'yt_refresh_token', 'yt_channel', 'meta_user_token', 'meta_page_id', 'meta_page_name', 'meta_page_token', 'meta_ig_id', 'meta_ig_username', 'meta_pages'];
-    const data = { settings: Object.fromEntries(keep.filter(k => s[k] !== undefined).map(k => [k, s[k]])), profiles: Array.isArray(db.profiles) ? db.profiles.map(p => ({ id: p.id, name: p.name, yt: p.yt, meta: p.meta, li: p.li, x: p.x })) : null };
+    const data = { settings: Object.fromEntries(keep.filter(k => s[k] !== undefined).map(k => [k, s[k]])), profiles: Array.isArray(db.profiles) ? db.profiles.map(p => ({ id: p.id, name: p.name, yt: p.yt, meta: p.meta, li: p.li, x: p.x, mapp: p.mapp })) : null, schedules: Array.isArray(db.schedules) ? db.schedules : null };
     if (!confirm('Copy the keys and connected accounts from this file into the cloud studio? Accounts with the same profile are replaced.')) return;
     const r = await api('/import', { body: { data } });
     S.st = await api('/state'); S.targets = new Set((S.st.settings.default_targets || []).filter(isConnected));
@@ -615,6 +616,94 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(err.message, true); }
 });
 
-const PAGES = { post: pagePost, history: pageHistory, profiles: pageProfiles, settings: pageSettings };
+// ---------- Autopilot ----------
+const DAYN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+async function loadAuto() {
+  try { S.auto = await api('/autopilot'); } catch (e) { toast(e.message, true); S.auto = S.auto || { schedules: [], credit: [] }; }
+  if (S.page === 'autopilot') rerenderMain();
+}
+function pageAutopilot() {
+  const a = S.auto, s = S.st.settings;
+  if (!a) return '<div class="panel empty"><span class="spin"></span></div>';
+  const credit = a.credit || [];
+  const keyf = (k, label) => `<label class="field"><span class="label">${label}${s[k] ? ' (saved)' : ''}</span><input data-apkey="${k}" placeholder="${s[k] ? 'Saved: leave empty to keep it' : 'AIza…'}" autocomplete="off" spellcheck="false"></label>`;
+  const days = d => d.length === 7 ? 'Every day' : d.map(x => DAYN[x]).join(', ');
+  const card = x => {
+    const n = x.targets.filter(isConnected).length;
+    return `<section class="panel"><div class="job-head"><div style="min-width:0"><h3>${esc(x.name)}</h3>
+      <div class="muted small">${days(x.days)} at ${x.times.join(', ')} · ${x.seconds}s · ${esc(x.language)} · ${x.voice === 'male' ? 'male' : 'female'} voice · ${n} account${n === 1 ? '' : 's'}${x.approve ? ' · asks you first' : ''}${x.engine === 'free' ? ' · free pictures' : ''}</div></div>
+      <span class="pill ${x.enabled ? 'ok' : ''}"><i class="dot"></i>${x.enabled ? 'On' : 'Off'}</span></div>
+      ${n ? '' : '<p class="err small">No connected account is ticked. Press Edit and tick where to post.</p>'}
+      <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-ap-run="${x.id}">${icon('spark')}Make one now</button><button class="btn sm" data-ap-edit="${x.id}">Edit</button>
+        <button class="btn sm quiet" data-ap-toggle="${x.id}">${x.enabled ? 'Turn off' : 'Turn on'}</button><button class="btn icon quiet" data-ap-del="${x.id}" aria-label="Delete">${icon('trash')}</button></div></section>`;
+  };
+  return `<div class="page-head"><div><p class="eyebrow">Autopilot</p><h1>Videos made for you</h1><p>At the time you choose, KMR Studio writes the script, makes the video with voice and subtitles, and sends it to your Telegram. You press Approve, and it posts.</p></div>
+    ${S.apEdit ? '' : `<button class="btn primary" data-ap-new>${icon('plus')}New autopilot</button>`}</div>
+    ${S.apEdit ? apForm(S.apEdit) : ''}
+    ${S.apEdit ? '' : a.schedules.length ? a.schedules.map(card).join('') : `<div class="panel empty"><p>No autopilot yet.</p><button class="btn primary" data-ap-new>${icon('plus')}New autopilot</button></div>`}
+    <details class="panel" ${credit.length ? '' : 'open'}><summary style="cursor:pointer;list-style:none"><div class="panel-head" style="margin:0"><h2>Video credit (Google AI Pro)</h2><span class="pill ${credit.length ? 'ok' : ''}"><i class="dot"></i>${credit.length ? credit.map(c => `Key ${c.n}: $${c.spent.toFixed(2)} of $${c.limit}`).join(' · ') : 'Not added'}</span></div></summary>
+      <p class="muted small">With a key, videos are made with Google Veo (real video clips), paid by the US$10 monthly credit of Google AI Pro. Without a key, or when the credit is used up, Autopilot makes the video free with AI pictures. One 30-second video uses about US$1.60.</p>
+      <ol class="steps small"><li>On each Pro account, open <a href="https://developers.google.com/profile/benefits" target="_blank" rel="noopener">developers.google.com/profile/benefits</a> and press <b>Activate</b> on the Google Cloud credit.</li><li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> with the same account, <b>Create API key</b>, and choose the project that has the credit (billing on).</li><li>Paste the key here and press <b>Save</b>, then <b>Test</b>.</li></ol>
+      <div class="form-grid">${keyf('veo_key_1', 'Pro account 1 key')}${keyf('veo_key_2', 'Pro account 2 key')}
+        <label class="field"><span class="label">Stop at (US$ per key per month)</span><input data-apkey="veo_limit" type="number" min="1" max="100" step="1" value="${esc(s.veo_limit || 9)}"></label></div>
+      <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-ap-savekeys>Save</button>${credit.length ? '<button class="btn sm" data-ap-test>Test</button>' : ''}</div></details>`;
+}
+function apForm(x) {
+  const profs = S.st.profiles || [];
+  const sel = (k, opts) => `<select data-apf="${k}">${opts.map(([v, l]) => `<option value="${v}" ${String(x[k]) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const chips = profs.map(p => `<div class="tprof"><div class="tprof-head"><b>${esc(p.name)}</b></div><div class="tchips">${PL.map(([k, l]) => {
+    const t = `${p.id}:${k}`;
+    return p[k].ok ? `<label class="tchip ${x.targets.includes(t) ? 'on' : ''}"><input type="checkbox" data-aptarget="${t}" ${x.targets.includes(t) ? 'checked' : ''}><span class="box"></span>${plBadge(k)}${l}</label>` : '';
+  }).join('') || '<a class="tchip off" href="#profiles">Nothing connected <small>connect</small></a>'}</div></div>`).join('');
+  return `<section class="panel"><div class="panel-head"><h2>${x.id ? 'Edit autopilot' : 'New autopilot'}</h2></div>
+    <div class="form-grid">
+      <label class="field wide"><span class="label">Name</span><input data-apf="name" maxlength="60" value="${esc(x.name)}" placeholder="Daily Tamil facts"></label>
+      <label class="field wide"><span class="label">What are the videos about?</span><textarea data-apf="about" maxlength="600" placeholder="Amazing science facts for Tamil families, simple and fun">${esc(x.about)}</textarea></label>
+      <label class="field wide"><span class="label">Topics, one per line (optional: used in order; empty = AI picks a new topic each time)</span><textarea data-apf="topics" placeholder="Why the sky is blue&#10;How bees make honey">${esc(x.topics)}</textarea></label>
+      <label class="field"><span class="label">Language</span>${sel('language', ['English', 'Tamil', 'Tamil and English mixed', 'Hindi'].map(l => [l, l]))}</label>
+      <label class="field"><span class="label">Voice</span>${sel('voice', [['female', 'Female'], ['male', 'Male']])}</label>
+      <label class="field"><span class="label">Length</span>${sel('seconds', [[15, '15 seconds'], [30, '30 seconds'], [45, '45 seconds'], [60, '1 minute']])}</label>
+      <label class="field"><span class="label">Shape</span>${sel('ratio', [['9:16', 'Tall (Reels, Shorts)'], ['16:9', 'Wide (YouTube)']])}</label>
+      <label class="field"><span class="label">Time (India time; more than one: 09:00, 19:00)</span><input data-apf="times" value="${esc(x.times.join(', '))}" placeholder="19:00"></label>
+      <label class="field"><span class="label">Video</span>${sel('engine', [['auto', 'Veo clips while credit lasts, then free pictures'], ['free', 'Always free AI pictures']])}</label>
+      <div class="field wide"><span class="label">Days</span><div class="tchips">${DAYN.map((d, i) => `<label class="tchip ${x.days.includes(i) ? 'on' : ''}"><input type="checkbox" data-apday="${i}" ${x.days.includes(i) ? 'checked' : ''}><span class="box"></span>${d}</label>`).join('')}</div></div>
+      <div class="field wide"><span class="label">Post to</span>${chips}</div>
+      <label class="check-row wide"><input type="checkbox" data-apf="approve" ${x.approve ? 'checked' : ''}> Ask me before posting (Telegram Approve button)</label>
+    </div>
+    <div class="btn-row" style="margin-top:14px"><button class="btn primary" data-ap-save>Save</button><button class="btn quiet" data-ap-cancel>Cancel</button></div></section>`;
+}
+function readApForm() {
+  const x = { ...S.apEdit };
+  $$('[data-apf]').forEach(i => { x[i.dataset.apf] = i.type === 'checkbox' ? i.checked : i.value; });
+  x.days = $$('[data-apday]').filter(i => i.checked).map(i => Number(i.dataset.apday));
+  x.targets = $$('[data-aptarget]').filter(i => i.checked).map(i => i.dataset.aptarget);
+  x.times = String(x.times || '').split(/[\s,]+/).filter(Boolean);
+  return x;
+}
+document.addEventListener('change', e => {
+  if (S.page !== 'autopilot') return;
+  const c = e.target.closest('[data-apday], [data-aptarget]');
+  if (c) c.closest('.tchip').classList.toggle('on', c.checked);
+});
+document.addEventListener('click', e => {
+  if (S.page !== 'autopilot') return;
+  const t = e.target.closest('button'); if (!t) return;
+  const list = S.auto?.schedules || [];
+  if (t.hasAttribute('data-ap-new')) { S.apEdit = { name: '', about: '', topics: '', language: S.st.settings.text_language || 'English', voice: 'female', seconds: 30, ratio: '9:16', times: ['19:00'], days: [0, 1, 2, 3, 4, 5, 6], targets: (S.st.settings.default_targets || []).filter(isConnected), approve: true, engine: 'auto' }; rerenderMain(); scrollTo(0, 0); }
+  if (t.dataset.apEdit) { S.apEdit = JSON.parse(JSON.stringify(list.find(x => x.id === t.dataset.apEdit))); rerenderMain(); scrollTo(0, 0); }
+  if (t.hasAttribute('data-ap-cancel')) { S.apEdit = null; rerenderMain(); }
+  if (t.hasAttribute('data-ap-save')) busy(t, async () => { await api('/autopilot', { body: readApForm() }); S.apEdit = null; toast('Saved.'); await loadAuto(); });
+  if (t.dataset.apToggle) busy(t, async () => { const x = list.find(y => y.id === t.dataset.apToggle); await api('/autopilot', { body: { ...x, enabled: !x.enabled } }); await loadAuto(); });
+  if (t.dataset.apDel && confirm('Delete this autopilot?')) busy(t, async () => { await api('/autopilot/' + t.dataset.apDel, { method: 'DELETE' }); await loadAuto(); });
+  if (t.dataset.apRun) busy(t, async () => { await api(`/autopilot/${t.dataset.apRun}/run`, { body: {} }); toast('Started. It takes a few minutes; you will get it on Telegram. Progress is in History.'); });
+  if (t.hasAttribute('data-ap-savekeys')) busy(t, async () => {
+    const patch = {};
+    $$('[data-apkey]').forEach(i => { if (i.value.trim()) patch[i.dataset.apkey] = i.dataset.apkey === 'veo_limit' ? Number(i.value) : i.value.trim(); });
+    S.st.settings = (await api('/settings', { body: patch })).settings; toast('Saved.'); await loadAuto();
+  });
+  if (t.hasAttribute('data-ap-test')) busy(t, async () => toast((await api('/veo/test', { body: {} })).message));
+});
+
+const PAGES = { post: pagePost, autopilot: pageAutopilot, history: pageHistory, profiles: pageProfiles, settings: pageSettings };
 boot();
 })();
