@@ -32,7 +32,7 @@ async function create(b, base) {
   if (!targets.length) throw new Error('Tick at least one connected account under "Post to".');
   const join = b.mode === 'join' && items.length > 1;
   const s = await st.settings();
-  const ai = !!(s.auto_text && s.gemini_key);
+  const ai = !!(s.auto_text && (s.gemini_key || s.groq_key));
   const blank = v => !String(Array.isArray(v) ? v.join(' ') : v || '').trim();
   const groups = join
     ? [{ files: items, meta: b.join || {}, thumb: b.join?.thumb_data }]

@@ -45,7 +45,7 @@ const gemini = (key, parts) => require('./gemini').json(key, parts);
  */
 async function analyze(clips, { hint = '', dir }) {
   const s = await st.settings();
-  if (!s.gemini_key) throw new Error('Add a free Gemini key in Settings so the AI can write titles, captions and hashtags.');
+  if (!s.gemini_key && !s.groq_key) throw new Error('Add a free Gemini key in Settings so the AI can write titles, captions and hashtags.');
   const total = clips.reduce((a, c) => a + c.info.duration, 0);
   const per = Math.max(1, Math.min(4, Math.round(8 / clips.length)));
   const frames = [];
@@ -68,10 +68,27 @@ Return ONLY JSON:
  "best_frame": "number of the frame that makes the most eye-catching thumbnail: sharp, clear subject or face, not a fade or transition"}` }];
   frames.forEach((f, i) => parts.push({ text: `Frame ${i}` }, { inline_data: { mime_type: 'image/jpeg', data: fs.readFileSync(f.file).toString('base64') } }));
   audios.forEach(a => parts.push({ inline_data: { mime_type: 'audio/mp3', data: fs.readFileSync(a).toString('base64') } }));
-  const o = await gemini(s.gemini_key, parts);
+  let o, via = 'gemini';
+  try {
+    if (!s.gemini_key) throw Object.assign(new Error('no Gemini key'), { busy: true });
+    o = await gemini(s.gemini_key, parts);
+  } catch (e) {
+    if (!s.groq_key || (/not valid|blocked/i.test(e.message) && !e.busy)) throw e;
+    // Gemini busy or down: Groq listens to the sound and writes from what is said
+    const groq = require('./groq');
+    const words = [];
+    for (const a of audios) { const t = await groq.transcribe(s.groq_key, a).catch(() => ''); if (t) words.push(t); }
+    if (!words.length && !hint) throw new Error(e.message + ' (The backup AI, Groq, needs speech in the video or a few words in the title box.)');
+    const said = words.length ? 'What is said in the video:\n<<<\n' + words.join('\n').slice(0, 5000) + '\n>>>\n' : 'The video has no speech.\n';
+    o = await groq.json(s.groq_key, `You are the social media editor for KMR Group. Write post text for a ${Math.round(total)}-second video for YouTube, Instagram Reels, Facebook, LinkedIn and X.
+${hint ? 'The owner says the video is about: ' + hint + '\n' : ''}${said}Write in ${lang}. Be accurate: use only what is said or what the owner says.
+Return ONLY JSON: {"title": "catchy, honest title under 80 characters", "description": "3 to 5 short sentences ending with a call to follow or comment", "hashtags": ["12 to 15 hashtags each starting with #"], "thumb_text": "2 to 4 punchy words in ${lang}"}`);
+    o.best_frame = Math.floor(frames.length / 3);
+    via = 'groq';
+  }
   const best = Math.max(0, Math.min(frames.length - 1, parseInt(o.best_frame, 10) || 0));
   const tags = (Array.isArray(o.hashtags) ? o.hashtags : String(o.hashtags || '').split(/[\s,]+/)).map(String).filter(Boolean).slice(0, 15);
-  return { title: String(o.title || '').replace(/\s+/g, ' ').trim().slice(0, 100), description: String(o.description || '').trim(), hashtags: tags, thumb_text: String(o.thumb_text || '').trim().slice(0, 40), frames, best };
+  return { title: String(o.title || '').replace(/\s+/g, ' ').trim().slice(0, 100), description: String(o.description || '').trim(), hashtags: tags, thumb_text: String(o.thumb_text || '').trim().slice(0, 40), frames, best, via };
 }
 
 // ---- thumbnails ----

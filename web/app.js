@@ -141,7 +141,7 @@ function pagePost() {
   const tcount = [...S.targets].filter(isConnected).length;
   const outCount = joining ? 1 : ready;
   const eachMany = S.mode === 'each' && n > 1;
-  const autoOn = S.st.settings.gemini_key && S.st.settings.auto_text !== false;
+  const autoOn = (S.st.settings.gemini_key || S.st.settings.groq_key) && S.st.settings.auto_text !== false;
   return `<div class="page-head"><div><p class="eyebrow">Upload and post</p><h1>Post your videos</h1><p>Add your Google Flow clips or any video. Post each one, or join them into one longer video.</p></div></div>
   ${anyAcc ? '' : `<div class="banner"><span>Connect your accounts first, so KMR Studio can post for you.</span><a class="btn primary sm" href="#profiles">Connect accounts</a></div>`}
   <section class="panel">
@@ -323,7 +323,10 @@ async function runPreview(force) {
     saveText();
     const fill = (k, v) => { if (v && (force || !String(S.text[k] || '').trim())) S.text[k] = v; };
     if (force || S.st.settings.auto_text !== false) { fill('title', r.title); fill('description', r.description); fill('hashtags', (r.hashtags || []).join(' ')); }
-    S.ai = { ...S.ai, state: 'done', thumbs: r.thumbs || [], picks: r.picks || [], thumb_text: r.thumb_text || '', warn: r.warn || '', sel: S.ai.sel === 'own' ? 'own' : (S.st.settings.auto_thumb === false && !force ? 'none' : 0) };
+    const busyNow = /high demand|busy|overloaded|limit|try again/i.test(r.warn || '');
+    S.ai = { ...S.ai, state: 'done', thumbs: r.thumbs || [], picks: r.picks || [], thumb_text: r.thumb_text || '', warn: r.warn ? r.warn + (busyNow && !S.ai.retried ? ' KMR Studio tries again by itself in 30 seconds.' : '') : '', sel: S.ai.sel === 'own' ? 'own' : (S.st.settings.auto_thumb === false && !force ? 'none' : 0) };
+    if (busyNow && !S.ai.retried) { S.ai.retried = true; setTimeout(() => { if (S.ai.key === key && S.page === 'post') runPreview(false); }, 30000); }
+    else if (!r.warn) S.ai.retried = false;
   } catch (e) {
     if (S.ai.key !== key) return;
     S.ai = { ...S.ai, state: 'done', warn: 'The AI preview did not work: ' + e.message + ' You can still post; the AI tries again while posting.' };
@@ -499,7 +502,7 @@ function pageSettings() {
   ${box('Instagram and Facebook: Meta app', s.meta_app_id, 'Free. With the secret saved, Facebook and Instagram logins never expire.', ['<a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a>, your app (type Business).', 'App settings, Basic: copy the <b>App ID</b> and <b>App secret</b> here.'], f('meta_app_id', 'App ID') + f('meta_app_secret', 'App secret', true))}
   ${box('LinkedIn app', s.li_client_id, 'Free. Posts go to each person\'s own LinkedIn profile.', ['<a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener">LinkedIn Developers</a>, your app, Products: add <b>Share on LinkedIn</b> and <b>Sign In with LinkedIn using OpenID Connect</b>.', `Auth tab, Authorized redirect URLs: add <code>${esc(cb)}</code>`, 'Copy the Client ID and secret here.'], f('li_client_id', 'Client ID') + f('li_client_secret', 'Client secret', true))}
   ${box('X app (optional, paid by X)', s.x_client_id, 'X charges about US$0.02 per video post from prepaid credits.', ['<a href="https://console.x.com" target="_blank" rel="noopener">console.x.com</a>, your app, User authentication: OAuth 2.0, <b>Web App</b>, <b>Read and write</b>.', `Callback URL: <code>${esc(cb)}</code>, Website: <code>https://www.kmr-groups.com</code>`, 'Copy the OAuth 2.0 Client ID and secret here.'], f('x_client_id', 'Client ID') + f('x_client_secret', 'Client secret', true))}
-  ${box('Gemini (optional, free)', s.gemini_key, 'Powers the "Write with AI" button for titles, captions and hashtags.', ['<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>: <b>Create API key</b>, copy it here.'], f('gemini_key', 'Gemini API key', true))}
+  ${box('AI writer: Gemini and Groq (free)', s.gemini_key, 'Gemini watches the video and writes the title, caption, hashtags and thumbnail headline. Groq is the backup when Gemini is busy: it listens to the video and writes from what is said.', ['Gemini: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, <b>Create API key</b>, copy it here (use a personal Gmail).', 'Groq (backup): <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>, <b>Create API Key</b>, copy it here.'], f('gemini_key', 'Gemini API key', true) + f('groq_key', 'Groq API key (backup)', true))}
   <section class="panel"><div class="panel-head"><div><h2>AI writing and thumbnails</h2><p>Needs the free Gemini key above.</p></div></div>
     <div class="form-grid">
       <label class="check-row"><input type="checkbox" data-key="auto_text" ${s.auto_text !== false ? 'checked' : ''}> AI writes the title, caption and hashtags by watching the video</label>
@@ -527,7 +530,7 @@ document.addEventListener('click', e => {
   if (t.hasAttribute('data-save')) busy(t, async () => {
     const patch = {};
     $$('[data-key]', t.closest('.panel')).forEach(i => { if (i.type === 'checkbox') { patch[i.dataset.key] = i.checked; return; } if (i.value !== '' || !/secret|key$/.test(i.dataset.key) || i.dataset.key === 'yt_privacy') patch[i.dataset.key] = i.value; });
-    for (const k of Object.keys(patch)) if (/(_secret|gemini_key)$/.test(k) && patch[k] === '') delete patch[k];
+    for (const k of Object.keys(patch)) if (/(_secret|_key)$/.test(k) && patch[k] === '') delete patch[k];
     S.st.settings = (await api('/settings', { body: patch })).settings; rerenderMain(); toast('Saved.');
   });
   if (t.dataset.copy) navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Copied.'), () => toast('Select the text and copy it.', true));
@@ -540,7 +543,7 @@ document.addEventListener('change', async e => {
     let db;
     try { db = JSON.parse(await f.text()); } catch { throw new Error('This file could not be read. Choose db.json from the data folder of KMR Studio on the laptop.'); }
     const s = db.settings || {};
-    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
+    const keep = ['yt_client_id', 'yt_client_secret', 'meta_app_id', 'meta_app_secret', 'li_client_id', 'li_client_secret', 'x_client_id', 'x_client_secret', 'gemini_key', 'groq_key', 'yt_privacy', 'x_post_limit', 'meta_graph_version', 'text_language', 'auto_text', 'auto_thumb', 'default_targets',
       'yt_refresh_token', 'yt_channel', 'meta_user_token', 'meta_page_id', 'meta_page_name', 'meta_page_token', 'meta_ig_id', 'meta_ig_username', 'meta_pages'];
     const data = { settings: Object.fromEntries(keep.filter(k => s[k] !== undefined).map(k => [k, s[k]])), profiles: Array.isArray(db.profiles) ? db.profiles.map(p => ({ id: p.id, name: p.name, yt: p.yt, meta: p.meta, li: p.li, x: p.x })) : null };
     if (!confirm('Copy the keys and connected accounts from this file into the cloud studio? Accounts with the same profile are replaced.')) return;

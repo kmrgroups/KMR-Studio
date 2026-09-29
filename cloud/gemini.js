@@ -29,31 +29,45 @@ function friendly(status, msg) {
 }
 const gone = (status, msg) => status === 404 || /no longer available|not found|is not supported for generateContent|deprecated/i.test(msg);
 
+const busy = (status, msg) => status === 503 || status === 500 || /high demand|overloaded|unavailable|try again later/i.test(msg);
+const daily = msg => /per day|daily|PerDay/i.test(msg);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // parts: Gemini content parts. Returns the parsed JSON answer.
-async function json(key, parts, { temperature = 0.8, timeout = 70000 } = {}) {
+// When Google is busy it waits a moment, tries again, then moves to the next model (lite, older generation).
+async function json(key, parts, { temperature = 0.8, timeout = 60000, budget = 110000 } = {}) {
+  const until = Date.now() + budget;
   let list = await models(key);
   const errors = [];
-  for (let round = 0; round < 2; round++) {
-    for (const model of list.slice(0, 3)) {
+  let refreshed = false;
+  for (let i = 0; i < Math.min(list.length, 6) && Date.now() < until; i++) {
+    const model = list[i];
+    for (let attempt = 0; attempt < 2 && Date.now() < until; attempt++) {
       const r = await fetch(`${BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature, responseMimeType: 'application/json' } }),
-        signal: AbortSignal.timeout(timeout)
+        signal: AbortSignal.timeout(Math.min(timeout, Math.max(5000, until - Date.now())))
       }).catch(e => ({ ok: false, status: 0, json: async () => ({ error: { message: e.message } }) }));
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
         const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-        try { return JSON.parse(text.replace(/^\s*```(json)?|```\s*$/g, '').trim()); } catch { errors.push(model + ': unreadable answer'); continue; }
+        try { return JSON.parse(text.replace(/^\s*```(json)?|```\s*$/g, '').trim()); } catch { errors.push(model + ' gave an unreadable answer'); break; }
       }
       const msg = j.error?.message || String(r.status);
       if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|denied access/i.test(msg)) throw new Error(friendly(r.status, msg));
       errors.push(friendly(r.status, msg));
-      if (!gone(r.status, msg) && r.status !== 429 && r.status !== 503 && r.status !== 500) break;
+      if (gone(r.status, msg)) {
+        if (!refreshed) { refreshed = true; list = await models(key, true); i = -1; }
+        break;
+      }
+      if (busy(r.status, msg) || r.status === 0) { await sleep(attempt ? 1000 : 2500); continue; }
+      if (r.status === 429 && !daily(msg)) { await sleep(4000); continue; }
+      break; // daily limit or a bad request: try the next model
     }
-    if (round === 0 && errors.some(e => /no longer available|not found|deprecated/i.test(e))) { list = await models(key, true); errors.length = 0; continue; }
-    break;
   }
-  throw new Error((errors[0] || 'Gemini did not answer') + ' You can type the text yourself.');
+  const e = new Error((errors.find(x => /high demand|busy|limit/i.test(x)) || errors[0] || 'Gemini did not answer'));
+  e.busy = errors.some(x => /high demand|overloaded|unavailable|limit/i.test(x));
+  throw e;
 }
 
 module.exports = { json, models, rank };

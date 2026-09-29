@@ -27,7 +27,7 @@ async function preview(b) {
     const s = await st.settings();
     let a = null, warn = '';
     const remake = Array.isArray(b.picks) && b.picks.length > 0; // only new thumbnail words: skip the AI
-    if (!remake && s.gemini_key) {
+    if (!remake && (s.gemini_key || s.groq_key)) {
       try { a = await describe.analyze(clips, { hint: b.hint || '', dir }); } catch (e) { warn = e.message; }
     } else if (!remake) warn = 'Add a free Gemini key in Settings and the AI will write the title, caption and hashtags for you.';
     // three frames to choose from: the AI's pick first, then two others spread through the video
