@@ -10,16 +10,22 @@ const st = require('./state');
 const RATIO = { '9:16': [1080, 1920], '16:9': [1280, 720], '1:1': [1080, 1080], '4:5': [1080, 1350] };
 
 async function preview(b) {
-  const list = (Array.isArray(b.pathnames) ? b.pathnames : []).filter(p => files.okPath(p) && p.startsWith('up/')).slice(0, 12);
-  if (!list.length) throw new Error('Upload a video first.');
+  const all = (Array.isArray(b.pathnames) ? b.pathnames : []).filter(p => files.okPath(p) && p.startsWith('up/')).slice(0, 60);
+  if (!all.length) throw new Error('Upload a video first.');
+  // Many clips (for example 19): the AI looks at 6 of them spread through the video, not all, so it stays quick.
+  const list = all.length <= 6 ? all : Array.from({ length: 6 }, (_, i) => all[Math.round(i * (all.length - 1) / 5)]);
   const dir = media.tmpDir('pv');
   try {
-    const got = await Promise.all(list.map(async (p, k) => {
-      const f = path.join(dir, `v${k}` + (path.extname(p).toLowerCase().replace(/[^.\w]/g, '') || '.mp4'));
-      const size = await files.download(p, f);
-      const info = await media.probe(f).catch(() => { throw new Error(`Video ${k + 1} is not a video file KMR Studio can read.`); });
-      return { file: f, info, size };
-    }));
+    const got = [];
+    for (let i = 0; i < list.length; i += 3) { // three at a time
+      got.push(...await Promise.all(list.slice(i, i + 3).map(async (p, j) => {
+        const k = i + j;
+        const f = path.join(dir, `v${k}` + (path.extname(p).toLowerCase().replace(/[^.\w]/g, '') || '.mp4'));
+        const size = await files.download(p, f);
+        const info = await media.probe(f).catch(() => { throw new Error(`Video ${k + 1} is not a video file KMR Studio can read.`); });
+        return { file: f, info, size };
+      })));
+    }
     if (got.reduce((a, c) => a + c.size, 0) > 250 * 1024 * 1024) throw new Error('These videos are too large to preview together. Post them and the AI writes the text while posting.');
     const clips = got;
     const first = clips[0].info;
@@ -28,7 +34,7 @@ async function preview(b) {
     let a = null, warn = '';
     const remake = Array.isArray(b.picks) && b.picks.length > 0; // only new thumbnail words: skip the AI
     if (!remake && (s.gemini_key || s.groq_key)) {
-      try { a = await describe.analyze(clips, { hint: b.hint || baseName(list[0]), dir }); } catch (e) { warn = e.message; }
+      try { a = await describe.analyze(clips, { hint: b.hint || baseName(list[0]), dir, total: Number(b.total) > 0 ? Number(b.total) : 0 }); } catch (e) { warn = e.message; }
     } else if (!remake) warn = 'Add a free Gemini key in Settings and the AI will write the title, caption and hashtags for you.';
     // three frames to choose from: the AI's pick first, then two others spread through the video
     let picks = Array.isArray(b.picks) ? b.picks.filter(p => clips[p.clip]).slice(0, 3) : [];

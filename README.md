@@ -17,6 +17,8 @@ With a free Gemini key (Settings), the AI watches the video (8 frames and the so
 3. Project **Storage**, **Create**, **Blob**, access **Private**, **Create**, connect it to this project.
 4. Project **Settings, Environment Variables**: `KMR_PASSWORD` = the password you want to sign in with.
 5. **Deployments**, three dots on the newest, **Redeploy**.
+
+**Updating later:** in KMR Studio open **Settings, Update KMR Studio**, save a GitHub token once, then upload the update zip. It is sent to GitHub and Vercel publishes it by itself.
 6. **Settings, Domains**: add `studio.kmr-groups.com` (one CNAME record `studio` -> `cname.vercel-dns.com` at Squarespace if Vercel asks).
 7. Open studio.kmr-groups.com, sign in, then **Settings** (app keys) and **Profiles** (connect accounts).
 

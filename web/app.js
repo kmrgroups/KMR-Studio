@@ -277,9 +277,18 @@ function addFiles(list) {
     const c = { key: 'c' + (++seq), file: f, name: f.name, size: f.size, url: URL.createObjectURL(f), status: 'uploading', progress: 0, title: '' };
     S.clips.push(c);
     readMeta(c);
-    upload(c);
+    enqueue(c);
   }
   rerenderMain();
+}
+// Many clips: three uploads at a time, so the phone and the connection are not swamped.
+const UPQ = []; let upRun = 0;
+function enqueue(c) { UPQ.push(c); pumpUploads(); }
+function pumpUploads() {
+  while (upRun < 3 && UPQ.length) {
+    const c = UPQ.shift(); if (!S.clips.includes(c)) continue;
+    upRun++; upload(c).finally(() => { upRun--; pumpUploads(); });
+  }
 }
 function readMeta(c) {
   const v = document.createElement('video');
@@ -343,7 +352,7 @@ async function runPreview(force) {
   clearInterval(S.aiTick);
   S.aiTick = setInterval(() => { const el = $('#ai-secs'); if (S.ai.state !== 'running') return clearInterval(S.aiTick); if (el) el.textContent = Math.round((Date.now() - S.ai.started) / 1000); }, 1000);
   try {
-    const r = await api('/work', { body: { kind: 'preview', pathnames: previewPaths(), ratio: previewRatio(), hint: S.text.title || '' } });
+    const r = await api('/work', { body: { kind: 'preview', pathnames: previewPaths(), ratio: previewRatio(), hint: S.text.title || '', total: Math.round(readyClips().reduce((a, c) => a + (c.duration || 0), 0)) } });
     if (S.ai.key !== key) return; // the videos changed meanwhile
     saveText();
     const fill = (k, v) => { if (v && (force || !String(S.text[k] || '').trim())) S.text[k] = v; };
@@ -599,6 +608,14 @@ function pageSettings() {
   <section class="panel"><div class="panel-head"><h2>Posting</h2></div>
     <div class="form-grid"><label class="field"><span class="label">YouTube visibility</span><select data-key="yt_privacy">${[['public', 'Public'], ['unlisted', 'Unlisted (only with the link)'], ['private', 'Private']].map(([k, l]) => `<option value="${k}" ${s.yt_privacy === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
     <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button></div></section>
+  <details class="panel" id="upd" ${S.upd ? 'open' : ''}><summary style="cursor:pointer;list-style:none"><div class="panel-head" style="margin:0"><div><h2>Update KMR Studio</h2><p>Upload a new version as a zip file. It is sent to GitHub and goes live by itself.</p></div><span class="pill ${s.github_key ? 'ok' : ''}"><i class="dot"></i>${s.github_key ? 'GitHub saved' : 'Set up once'}</span></div></summary>
+    <p class="muted small">This studio runs on Vercel, which cannot change its own files. So the zip is saved into your GitHub repository, and Vercel publishes it in about one to two minutes. Only the studio's own files (api, cloud, web, package.json…) are accepted, and every file is checked for errors first; if one is broken, nothing is changed.</p>
+    <ol class="steps small"><li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>. Name it <b>KMR Studio update</b>, choose an expiry, <b>Only select repositories</b>, pick your KMR-Studio repository.</li><li>Under <b>Repository permissions</b> set <b>Contents</b> to <b>Read and write</b>. Press <b>Generate token</b> and copy it.</li><li>Paste it below, press <b>Save</b>, then <b>Check GitHub</b>.</li></ol>
+    <div class="form-grid">${f('github_key', 'GitHub token', true, 'github_pat_…')}${f('github_repo', 'Repository', false, 'kmrgroups/KMR-Studio')}${f('github_branch', 'Branch', false, 'main')}</div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn primary sm" data-save>Save</button><button class="btn sm" data-up="check">Check GitHub</button></div>
+    <div class="btn-row" style="margin-top:16px"><label class="btn primary ${s.github_key ? '' : 'quiet'}">${icon('upload')}Choose the update zip<input type="file" id="update-file" accept=".zip,application/zip" hidden ${s.github_key ? '' : 'disabled'}></label><span class="muted small">Now on version <b>${esc(S.st.version)}</b>.${s.github_key ? '' : ' Save the GitHub token first.'}</span></div>
+    ${S.upd ? `<div class="ai-note ${S.upd.err ? 'warn' : ''}">${S.upd.wait ? '<span class="spin"></span> ' : ''}${esc(S.upd.msg)}</div>` : ''}
+    <p class="muted small">Anyone who can sign in to this studio can send an update, so keep the password private. Files that are not in the zip stay as they are, and files cannot be deleted this way.</p></details>
   <section class="panel"><div class="panel-head"><div><h2>Bring keys from the laptop version</h2><p>Copies your app keys and every profile's connected accounts, so you do not have to find the keys or connect again.</p></div></div>
     <ol class="steps small"><li>On the laptop, open the KMR Studio folder (for example <code>C:\\kmr-studio</code>), then the <b>data</b> folder.</li><li>Find the file <b>db.json</b>. Copy it to your phone if you are on the phone (WhatsApp to yourself, Google Drive or a cable).</li><li>Press <b>Choose db.json</b> below and pick it. Only the keys and account logins are sent; videos and history stay on the laptop.</li><li>Afterwards, close the laptop version. X logins work in one place only.</li></ol>
     <div class="btn-row"><label class="btn primary sm">${icon('upload')}Choose db.json<input type="file" id="import-file" accept=".json,application/json" hidden></label>
@@ -626,6 +643,7 @@ document.addEventListener('click', e => {
     if (k === 'test') toast((await api('/telegram/test', { body: {} })).message);
     if (k === 'disconnect' && confirm('Disconnect Telegram?')) { await api('/telegram/disconnect', { body: {} }); S.st = await api('/state'); rerenderMain(); }
   });
+  if (t.dataset.up === 'check') busy(t, async () => { S.upd = null; toast((await api('/update/check', { body: {} })).message); });
   if (t.dataset.copy) navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Copied.'), () => toast('Select the text and copy it.', true));
   if (t.hasAttribute('data-logo-clear')) busy(t, async () => { S.st.settings = (await api('/settings', { body: { logo: '' } })).settings; render(); });
 });
@@ -645,6 +663,34 @@ document.addEventListener('change', async e => {
     render();
     toast(`Done: ${r.keys} keys and ${r.accounts} accounts copied (${r.profiles.join(', ')}).${r.telegram === 'connected' ? ' Telegram is connected.' : r.telegram === 'needs start' ? ' For Telegram, press Connect in Settings, Telegram.' : ''} Press Check on an account in Profiles to test it.`);
   } catch (err) { toast(err.message, true); }
+});
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'update-file' || !e.target.files[0]) return;
+  const f = e.target.files[0]; e.target.value = '';
+  if (!/\.zip$/i.test(f.name)) return toast('Choose a .zip file.', true);
+  if (f.size > 15 * 1024 * 1024) return toast('This zip is larger than 15 MB. Send only the changed files.', true);
+  if (!confirm(`Send "${f.name}" to GitHub as an update? The studio restarts on the new version in a minute or two.`)) return;
+  const from = S.st.version;
+  const show = (msg, o = {}) => { S.upd = { msg, ...o }; if (S.page === 'settings') rerenderMain(); };
+  try {
+    show('Uploading the zip…', { wait: true });
+    const pathname = 'up/update-' + Date.now().toString(36) + '.zip';
+    if (S.st.upload === 'direct') { const r = await fetch('/__blob/' + pathname, { method: 'PUT', body: f }); if (!r.ok) throw new Error('Upload failed'); }
+    else await window.KMRBlob.uploadPresigned(pathname, f, { access: 'private', handleUploadUrl: '/api/upload', contentType: 'application/zip' });
+    show('Checking the files and sending them to GitHub…', { wait: true });
+    const r = await api('/update', { body: { pathname } });
+    if (!r.changed) return show('Already up to date: every file in this zip is the same as in GitHub. Nothing was changed.');
+    const names = r.files.slice(0, 6).join(', ') + (r.files.length > 6 ? ` and ${r.files.length - 6} more` : '');
+    if (!(r.version && r.version !== from)) return show(`Sent ${r.changed} file${r.changed > 1 ? 's' : ''} to GitHub (${names}). Vercel is publishing it now. Reload this page in a minute or two.`);
+    show(`Sent ${r.changed} file${r.changed > 1 ? 's' : ''} to GitHub (${names}). Vercel is publishing version ${r.version}. This page reloads by itself when it is live.`, { wait: true });
+    const started = Date.now();
+    const tick = async () => {
+      if (Date.now() - started > 8 * 60000) return show('Still publishing. Reload this page in a minute. If the version does not change, open your project in Vercel, Deployments, and look for an error.', { err: true });
+      try { const s = await fetch('/api/state', { cache: 'no-store' }).then(x => x.json()); if (s.version && s.version !== from) { toast('Updated to version ' + s.version + '.'); return setTimeout(() => location.reload(), 800); } } catch {}
+      setTimeout(tick, 8000);
+    };
+    setTimeout(tick, 15000);
+  } catch (err) { show(err.message, { err: true }); toast(err.message, true); }
 });
 document.addEventListener('change', async e => {
   if (e.target.id !== 'logo' || !e.target.files[0]) return;

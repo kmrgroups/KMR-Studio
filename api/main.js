@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.7.0';
+const VERSION = '2.8.0';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -111,6 +111,8 @@ module.exports = async function handler(req, res) {
     if ((m = /^\/posts\/([\w]+)\/retry$/.exec(path)) && M === 'POST') { await jobs.retry(m[1], b.target, base); return H.send(res, 200, { ok: true }); }
     if ((m = /^\/posts\/([\w]+)$/.exec(path)) && M === 'DELETE') { await jobs.remove(m[1]); return H.send(res, 200, { ok: true }); }
 
+    if (path === '/update/check' && M === 'POST') return H.send(res, 200, { message: await require('../cloud/update').check() });
+    if (path === '/update' && M === 'POST') return H.send(res, 200, await require('../cloud/update').apply(String(b.pathname || '')));
     if (path === '/import' && M === 'POST') return H.send(res, 200, await require('../cloud/transfer').importData(b.data, base));
     if ((m = /^\/telegram\/(connect|test|disconnect)$/.exec(path)) && M === 'POST') {
       const tg = require('../cloud/telegram');

@@ -41,10 +41,10 @@ const gemini = (key, parts) => require('./gemini').json(key, parts);
  * clips: [{ file, info }] in order (one video, or the clips that will be joined).
  * Returns { title, description, hashtags[], thumb_text, frames: [{file,t,src}], best }
  */
-async function analyze(clips, { hint = '', dir }) {
+async function analyze(clips, { hint = '', dir, total: wholeLength = 0 }) {
   const s = await st.settings();
   if (!s.gemini_key && !s.groq_key) throw new Error('Add a free Gemini key in Settings so the AI can write titles, captions and hashtags.');
-  const total = clips.reduce((a, c) => a + c.info.duration, 0);
+  const total = wholeLength || clips.reduce((a, c) => a + c.info.duration, 0);
   const per = Math.max(1, Math.min(3, Math.round(6 / clips.length)));
   const [frameSets, audioList] = await Promise.all([
     Promise.all(clips.map((c, k) => grabFrames(c.file, c.info.duration, clips.length === 1 ? 6 : per, dir, `c${k}f`))),

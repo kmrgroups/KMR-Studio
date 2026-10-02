@@ -76,6 +76,7 @@ async function prepare(id, base) {
       await files.download(s.pathname, f);
       srcs.push(f);
     }
+    await st.log(id, `Downloaded ${srcs.length} video${srcs.length > 1 ? 's' : ''}, checking them`);
     const r = await media.prepare(srcs, { join: job.mode === 'join', ratio: job.ratio, fit: job.fit, timeLeft }, dir, msg => st.log(id, msg));
     let pathname = job.sources[0].pathname;
     if (!r.reused) { pathname = `out/${id}.mp4`; await files.putFile(pathname, r.file); }
@@ -259,6 +260,10 @@ async function list(n = 40) {
     const a = raw[2 * k + 1] || [], res = {};
     for (let i = 0; i < a.length; i += 2) { try { res[a[i]] = JSON.parse(a[i + 1]); } catch {} }
     job.results = res;
+    if (job.status === 'preparing' && !job.video && Date.now() - (job.updated || job.created) > 7 * 60000) { // the background run was cut off: show Retry instead of waiting forever
+      job.status = 'failed'; job.error = 'Preparing took too long and stopped. Press Retry. With many clips, joining ones of the same size and frame rate is much quicker.';
+      await st.patchJob(job.id, { status: job.status, error: job.error }).catch(() => {});
+    }
     const age = Date.now() - (job.finished || job.created);
     if (!job.files_removed && ((job.status === 'done' && age > 3600000) || (['failed', 'partial', 'review'].includes(job.status) && age > 7 * 864e5))) { await removeFiles(job); job.files_removed = true; }
     out.push(job);

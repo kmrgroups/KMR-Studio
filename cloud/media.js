@@ -105,20 +105,25 @@ async function prepare(srcs, opts, dir, onStep = () => {}) {
     return { file: out, reused: false, info: await probe(out), ratio, copied: true };
   }
   // different sizes: fit each into one frame and encode once
-  let [W, H] = RATIOS[ratio];
+  // The output is not bigger than the clips are: 720p clips are joined as 720p (no upscaling, about 2x quicker).
+  const maxShort = Math.max(...infos.map(i => Math.min(i.w, i.h)));
+  const short = Math.min(1080, Math.max(480, even(maxShort)));
+  const [bw, bh] = RATIOS[ratio], k0 = short / Math.min(bw, bh);
+  let [W, H] = [even(bw * k0), even(bh * k0)];
   const pixels = total * W * H;
-  if (pixels > 240 * 1080 * 1920) [W, H] = [even(W * 2 / 3), even(H * 2 / 3)]; // long mixes are made in 720p so they finish in time
+  if (pixels > 240 * 1080 * 1920) [W, H] = [even(W * 2 / 3), even(H * 2 / 3)]; // long mixes are made smaller so they finish in time
   const budget = opts.timeLeft() - 40000;
   const est = total * W * H / (1080 * 1920) * 900; // measured about 0.35 s of work per second of 1080p video on one CPU; allow for a slower one
   if (est > budget) throw new Error(`These videos are too long to join in one go here (about ${Math.round(total)} seconds in different sizes). Join up to about ${Math.max(20, Math.round(total * budget / est))} seconds at a time, or use clips of the same size (Flow clips join instantly).`);
   onStep(`Joining ${srcs.length} videos into one ${ratio} video (${W}x${H})`);
-  const args = ['-y'];
+  const args = ['-y', '-threads', '0'];
   srcs.forEach(s => args.push('-i', s));
   const silent = [];
   infos.forEach((i, k) => { if (!i.acodec) { silent[k] = srcs.length + silent.filter(x => x !== undefined).length; args.push('-f', 'lavfi', '-t', i.duration.toFixed(3), '-i', 'anullsrc=r=44100:cl=stereo'); } });
   const parts = infos.map((i, k) => {
     const a = i.acodec ? `[${k}:a:0]` : `[${silent[k]}:a]`;
-    return `[${k}:v:0]${fitChain(W, H, opts.fit).replace(/\[a\]/g, `[a${k}]`).replace(/\[b\]/g, `[b${k}]`).replace(/\[bg\]/g, `[bg${k}]`).replace(/\[fg\]/g, `[fg${k}]`)},setsar=1,fps=30,format=yuv420p,trim=duration=${i.duration.toFixed(3)},setpts=PTS-STARTPTS[v${k}];` +
+    const shape = Math.abs(Math.log((i.w / i.h) / (W / H))) < 0.02 ? `scale=${W}:${H}` : fitChain(W, H, opts.fit);
+    return `[${k}:v:0]${shape.replace(/\[a\]/g, `[a${k}]`).replace(/\[b\]/g, `[b${k}]`).replace(/\[bg\]/g, `[bg${k}]`).replace(/\[fg\]/g, `[fg${k}]`)},setsar=1,fps=30,format=yuv420p,trim=duration=${i.duration.toFixed(3)},setpts=PTS-STARTPTS[v${k}];` +
       `${a}aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=duration=${i.duration.toFixed(3)},asetpts=PTS-STARTPTS[s${k}]`;
   });
   const fc = parts.join(';') + ';' + infos.map((_, k) => `[v${k}][s${k}]`).join('') + `concat=n=${infos.length}:v=1:a=1[v][a]`;
