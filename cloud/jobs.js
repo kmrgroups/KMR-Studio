@@ -43,7 +43,7 @@ async function create(b, base) {
     const job = {
       id: st.uid(), created: Date.now(), status: 'preparing', mode: g.files.length > 1 ? 'join' : 'single',
       title: String(blank(m.title) ? baseName(g.files[0].name) : m.title).slice(0, 100), description: String(m.description || '').slice(0, 4500), hashtags: cleanTags(m.hashtags),
-      auto: ai ? { title: blank(m.title), description: blank(m.description), hashtags: blank(m.hashtags) } : null, hint: String(m.hint || '').slice(0, 300),
+      auto: ai ? { title: blank(m.title), description: blank(m.description), hashtags: blank(m.hashtags) } : null, hint: String(m.hint || '').slice(0, 300), link: require('./whatsapp').cleanLink(m.link),
       approve: b.approve !== undefined ? !!b.approve : !!s.approve_default,
       thumb_mode: g.thumb === 'none' ? 'none' : g.thumb ? 'chosen' : (s.auto_thumb ? 'auto' : 'none'),
       targets, sources: g.files.map(f => ({ pathname: f.pathname, name: String(f.name || '').slice(0, 120), size: Number(f.size) || 0 })),
@@ -156,7 +156,8 @@ const POSTERS = {
   instagram: c => require('./meta').postInstagram(c),
   facebook: c => require('./meta').postFacebook(c),
   linkedin: c => require('./linkedin').post(c),
-  x: c => require('./x').post(c)
+  x: c => require('./x').post(c),
+  whatsapp: c => require('./whatsapp').post(c)
 };
 async function postTarget(id, target, base) {
   const name = 'post:' + id + ':' + target;

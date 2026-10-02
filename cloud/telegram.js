@@ -6,7 +6,7 @@ const kv = require('./kv');
 const files = require('./files');
 
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const PL = { youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', x: 'X' };
+const PL = { youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn', x: 'X', whatsapp: 'WhatsApp Status' };
 
 async function call(method, params, token) {
   const t = token || (await st.settings()).telegram_token;
@@ -104,7 +104,7 @@ async function finished(job, results) {
   const lines = await Promise.all(job.targets.map(async t => {
     const [pid, pl] = t.split(':'); const r = results[t] || {};
     const who = `${PL[pl]} · ${esc((await st.profile(pid))?.name || pid)}`;
-    return r.status === 'done' ? `✅ ${who}: ${r.url ? `<a href="${esc(r.url)}">open</a>` : 'posted'}` : `❌ ${who}: ${esc(String(r.error || 'failed').slice(0, 200))}`;
+    return r.status === 'done' ? `✅ ${who}: ${pl === 'whatsapp' ? 'sent here, share it to your Status' : r.url ? `<a href="${esc(r.url)}">open</a>` : 'posted'}` : `❌ ${who}: ${esc(String(r.error || 'failed').slice(0, 200))}`;
   }));
   const ok = job.targets.every(t => results[t]?.status === 'done');
   await send(`${ok ? '🎉 Posted' : '⚠️ Posted with problems'}: <b>${esc(job.title)}</b>\n\n${lines.join('\n')}${ok ? '' : '\n\nOpen History in KMR Studio and press Retry.'}`).catch(() => {});
@@ -154,4 +154,4 @@ async function disconnect() {
   await st.saveSettings({ telegram_chat_id: '', telegram_bot: '' });
 }
 
-module.exports = { health, ensureHook, connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };
+module.exports = { call, esc, health, ensureHook, connect, review, finished, handleUpdate, test, disconnect, ready, send, hookSecret };

@@ -9,6 +9,7 @@ const ACC = {
   meta: ['user_token', 'page_id', 'page_name', 'page_token', 'ig_id', 'ig_username', 'pages', 'expires', 'missing'],
   li: ['token', 'expires_at', 'urn', 'name'],
   x: ['access', 'refresh', 'expires_at', 'username', 'name'],
+  wa: ['on', 'link'],
   mapp: ['app_id', 'app_secret']
 };
 const pick = (o, keys) => { const r = {}; for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') r[k] = o[k]; return r; };
@@ -27,7 +28,7 @@ async function importData(data, base) {
   const keys = pick(s, KEYS);
   if (!Object.keys(keys).length && !profiles.some(p => ['yt', 'meta', 'li', 'x'].some(k => p[k] && Object.keys(p[k]).length))) throw new Error('No keys or accounts were found in this file. Choose data\\db.json from the KMR Studio (or Lumen Studio) folder on the laptop.');
   const patch = { ...keys };
-  const targets = Array.isArray(s.default_targets) ? s.default_targets.filter(t => /^[\w-]+:(youtube|instagram|facebook|linkedin|x)$/.test(t)) : null;
+  const targets = Array.isArray(s.default_targets) ? s.default_targets.filter(t => /^[\w-]+:(youtube|instagram|facebook|linkedin|x|whatsapp)$/.test(t)) : null;
   if (targets) patch.default_targets = targets;
   await st.saveSettings(patch);
 
@@ -42,7 +43,7 @@ async function importData(data, base) {
     let n = 0;
     for (const [sec, fields] of Object.entries(ACC)) {
       const acc = pick(p[sec], fields);
-      const real = sec === 'yt' ? acc.refresh || acc.client_id : sec === 'meta' ? acc.page_token : sec === 'li' ? acc.token : sec === 'mapp' ? acc.app_id : acc.refresh;
+      const real = sec === 'yt' ? acc.refresh || acc.client_id : sec === 'meta' ? acc.page_token : sec === 'li' ? acc.token : sec === 'mapp' ? acc.app_id : sec === 'wa' ? acc.on : acc.refresh;
       if (!real) continue;
       await st.setAccount(id, sec, { ...acc, problem: '' }, true);
       if (sec === 'yt' ? acc.refresh : sec !== 'mapp') n++;
@@ -71,7 +72,7 @@ async function exportData() {
     kind: 'kmr-studio-backup', version: 1, created: new Date().toISOString(),
     note: 'Contains your app keys and account logins. Keep this file private. Import it in KMR Studio, Settings, Bring keys from a file.',
     settings: { ...pick(s, KEYS), default_targets: s.default_targets || [] },
-    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x), mapp: pick(p.mapp, ACC.mapp) })),
+    profiles: profiles.map(p => ({ id: p.id, name: p.name, yt: pick(p.yt, ACC.yt), meta: pick(p.meta, ACC.meta), li: pick(p.li, ACC.li), x: pick(p.x, ACC.x), wa: pick(p.wa, ACC.wa), mapp: pick(p.mapp, ACC.mapp) })),
     schedules: await kv.getJ('schedules') || []
   };
 }

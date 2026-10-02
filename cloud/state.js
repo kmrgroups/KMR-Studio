@@ -3,9 +3,9 @@ const crypto = require('crypto');
 const kv = require('./kv');
 
 const uid = () => Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
-const PLATFORMS = [['youtube', 'YouTube'], ['instagram', 'Instagram'], ['facebook', 'Facebook'], ['linkedin', 'LinkedIn'], ['x', 'X']];
+const PLATFORMS = [['youtube', 'YouTube'], ['instagram', 'Instagram'], ['facebook', 'Facebook'], ['linkedin', 'LinkedIn'], ['x', 'X'], ['whatsapp', 'WhatsApp Status']];
 const PKEYS = PLATFORMS.map(p => p[0]);
-const SECTION = { youtube: 'yt', instagram: 'meta', facebook: 'meta', linkedin: 'li', x: 'x' };
+const SECTION = { youtube: 'yt', instagram: 'meta', facebook: 'meta', linkedin: 'li', x: 'x', whatsapp: 'wa' };
 
 const DEFAULTS = {
   yt_client_id: '', yt_client_secret: '', meta_app_id: '', meta_app_secret: '', li_client_id: '', li_client_secret: '',
@@ -41,7 +41,7 @@ async function profile(id) {
   const p = (await profiles()).find(x => x.id === id);
   if (!p) return null;
   const acc = await kv.hallJ('acc:' + id);
-  return { ...p, yt: acc.yt || {}, meta: acc.meta || {}, li: acc.li || {}, x: acc.x || {}, mapp: acc.mapp || {} };
+  return { ...p, yt: acc.yt || {}, meta: acc.meta || {}, li: acc.li || {}, x: acc.x || {}, wa: acc.wa || {}, mapp: acc.mapp || {} };
 }
 async function allProfiles() {
   const list = await profiles();
@@ -50,7 +50,7 @@ async function allProfiles() {
   return list.map((p, i) => {
     const a = accs[i] || [], o = {};
     for (let k = 0; k < a.length; k += 2) { try { o[a[k]] = JSON.parse(a[k + 1]); } catch {} }
-    return { ...p, yt: o.yt || {}, meta: o.meta || {}, li: o.li || {}, x: o.x || {}, mapp: o.mapp || {} };
+    return { ...p, yt: o.yt || {}, meta: o.meta || {}, li: o.li || {}, x: o.x || {}, wa: o.wa || {}, mapp: o.mapp || {} };
   });
 }
 async function addProfile(name) {
@@ -96,6 +96,7 @@ function connected(p, platform) {
   if (platform === 'instagram') return !!(p.meta.page_token && p.meta.ig_id);
   if (platform === 'linkedin') return !!(p.li.token && (!p.li.expires_at || p.li.expires_at > Date.now()));
   if (platform === 'x') return !!p.x.refresh;
+  if (platform === 'whatsapp') return !!p.wa.on;
   return false;
 }
 function label(p, platform) {
@@ -104,6 +105,7 @@ function label(p, platform) {
   if (platform === 'instagram') return p.meta.ig_username ? '@' + p.meta.ig_username : '';
   if (platform === 'linkedin') return p.li.name || '';
   if (platform === 'x') return p.x.username ? '@' + p.x.username : '';
+  if (platform === 'whatsapp') return 'via Telegram';
   return '';
 }
 function problem(p, platform) {
@@ -119,6 +121,7 @@ function publicProfile(p) {
   o.facebook.own_app = p.mapp && p.mapp.app_id ? p.mapp.app_id : '';
   if (p.li.expires_at) o.linkedin.expires_at = p.li.expires_at;
   o.facebook.pages = p.meta.pages || [];
+  o.whatsapp.link = p.wa.link || '';
   return o;
 }
 

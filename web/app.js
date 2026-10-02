@@ -20,14 +20,14 @@ const PATHS = {
   film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>'
 };
 const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[n] || ''}</svg>`;
-const PL = [['youtube', 'YouTube', '▶'], ['instagram', 'Instagram', 'IG'], ['facebook', 'Facebook', 'f'], ['linkedin', 'LinkedIn', 'in'], ['x', 'X', '𝕏']];
+const PL = [['youtube', 'YouTube', '▶'], ['instagram', 'Instagram', 'IG'], ['facebook', 'Facebook', 'f'], ['linkedin', 'LinkedIn', 'in'], ['x', 'X', '𝕏'], ['whatsapp', 'WhatsApp Status', 'WA']];
 const plName = k => (PL.find(p => p[0] === k) || [k, k])[1];
 const plBadge = k => `<span class="pl ${k}" aria-hidden="true">${(PL.find(p => p[0] === k) || ['', '', '?'])[2]}</span>`;
 const fmtDur = s => { s = Math.round(s || 0); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : s + 's'; };
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(b > 104857600 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return m + ' min ago'; const h = Math.round(m / 60); if (h < 24) return h + ' h ago'; return new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
 
-const S = { st: null, page: 'post', clips: [], mode: 'join', ratio: 'auto', fit: 'blur', text: { title: '', description: '', hashtags: '' }, targets: null, jobs: [], open: {}, yt: {}, busy: false, ai: freshAi() };
+const S = { st: null, page: 'post', clips: [], mode: 'join', ratio: 'auto', fit: 'blur', text: { title: '', description: '', hashtags: '', link: '' }, waFiles: {}, targets: null, jobs: [], open: {}, yt: {}, busy: false, ai: freshAi() };
 function freshAi() { return { state: 'idle', key: '', warn: '', thumbs: [], picks: [], thumb_text: '', sel: 0, own: null }; }
 let seq = 0;
 
@@ -170,6 +170,7 @@ function pagePost() {
       ${S.mode === 'each' && n > 1 ? '' : `<label class="field wide"><span class="label">Title</span><input id="t-title" maxlength="100" value="${esc(S.text.title)}" placeholder="${esc(S.clips[0] ? baseName(S.clips[0].name) : 'What is this video about?')}"></label>`}
       <label class="field wide"><span class="label">Caption</span><textarea id="t-desc" maxlength="4500" placeholder="A few lines about the video, and a call to follow">${esc(S.text.description)}</textarea></label>
       <label class="field wide"><span class="label">Hashtags</span><input id="t-tags" value="${esc(S.text.hashtags)}" placeholder="#ai #manufacturing #kmr"></label>
+      ${waTicked() ? `<label class="field wide"><span class="label">Link for WhatsApp Status (tappable in the caption)</span><input id="t-link" inputmode="url" value="${esc(S.text.link)}" placeholder="${esc(waDefaultLink() || 'https://kmr-groups.com')}"><span class="muted small">Leave empty to use the profile's own link.</span></label>` : ''}
       ${eachMany || !n ? '' : thumbPicker()}
     </div>
   </section>
@@ -218,9 +219,12 @@ function targetProfile(p) {
   const allOn = ids.length && ids.every(t => S.targets.has(t));
   return `<div class="tprof"><div class="tprof-head"><b>${esc(p.name)}</b>${ids.length ? `<button class="btn sm quiet" data-prof-all="${p.id}">${allOn ? 'Untick' : 'Tick all'}</button>` : ''}</div><div class="tchips">${chips}</div></div>`;
 }
+const waTicked = () => [...S.targets].some(t => /:whatsapp$/.test(t) && isConnected(t));
+const waProfile = id => (S.st.profiles || []).find(p => p.id === id);
+const waDefaultLink = () => { const t = [...S.targets].find(x => /:whatsapp$/.test(x) && isConnected(x)); return t ? (waProfile(t.split(':')[0])?.whatsapp.link || '') : ''; };
 function saveText() {
-  const t = $('#t-title'), d = $('#t-desc'), h = $('#t-tags');
-  if (t) S.text.title = t.value; if (d) S.text.description = d.value; if (h) S.text.hashtags = h.value;
+  const t = $('#t-title'), d = $('#t-desc'), h = $('#t-tags'), l = $('#t-link');
+  if (t) S.text.title = t.value; if (d) S.text.description = d.value; if (h) S.text.hashtags = h.value; if (l) S.text.link = l.value;
   $$('[data-title]').forEach(i => { const c = S.clips.find(x => x.key === i.dataset.title); if (c) c.title = i.value; });
 }
 function bindPost() {
@@ -382,15 +386,15 @@ async function doPost() {
   const targets = [...S.targets].filter(isConnected);
   const body = {
     mode: S.mode === 'join' && clips.length > 1 ? 'join' : 'each',
-    items: clips.map(c => ({ pathname: c.pathname, name: c.name, size: c.size, title: c.title || '', description: S.text.description, hashtags: S.text.hashtags })),
-    join: { title: S.text.title, description: S.text.description, hashtags: S.text.hashtags, ratio: S.ratio, fit: S.fit, thumb_data: chosenThumb(), hint: S.text.title },
+    items: clips.map(c => ({ pathname: c.pathname, name: c.name, size: c.size, title: c.title || '', description: S.text.description, hashtags: S.text.hashtags, link: S.text.link })),
+    join: { title: S.text.title, description: S.text.description, hashtags: S.text.hashtags, link: S.text.link, ratio: S.ratio, fit: S.fit, thumb_data: chosenThumb(), hint: S.text.title },
     targets, approve: askFirst()
   };
   if (body.mode === 'each' && clips.length === 1) Object.assign(body.items[0], { title: S.text.title, thumb_data: chosenThumb() });
   const r = await api('/posts', { body });
   api('/settings', { body: { default_targets: targets } }).then(x => S.st.settings = x.settings).catch(() => {});
   S.clips.forEach(c => URL.revokeObjectURL(c.url));
-  S.clips = []; S.text = { title: '', description: '', hashtags: '' }; S.ai = freshAi();
+  S.clips = []; S.text = { title: '', description: '', hashtags: '', link: '' }; S.ai = freshAi();
   toast(body.approve ? (S.st.settings.telegram_chat_id ? 'Getting it ready. It comes to Telegram for your OK in a minute.' : 'Getting it ready. Approve it in History.') : r.jobs.length > 1 ? `${r.jobs.length} posts started. Follow them in History.` : 'Posting started. Follow it in History.');
   S.jobs = [...r.jobs.map(j => ({ ...j, results: {} })), ...S.jobs.filter(j => !r.jobs.some(n => n.id === j.id))];
   location.hash = '#history';
@@ -421,7 +425,7 @@ function jobCard(j) {
     const r = (j.results || {})[t] || {};
     const stale = r.status === 'running' && Date.now() - (r.updated || 0) > 6 * 60000;
     const st = j.status === 'rejected' || (j.status === 'failed' && !j.video) ? ['bad', 'Not posted'] : j.status === 'review' ? ['', 'Waiting for OK'] : j.status === 'preparing' || j.status === 'making' ? ['', 'Waiting'] : r.status === 'done' ? ['ok', 'Posted'] : r.status === 'failed' ? ['bad', 'Failed'] : r.status === 'running' ? ['run', 'Posting'] : ['', 'Waiting'];
-    const msg = r.status === 'done' ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${icon('link')} Open post</a>${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}`
+    const msg = r.status === 'done' ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${icon('link')} Open post</a>` : ''}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}`
       : r.status === 'failed' ? `<span class="err">${esc(r.error)}</span>` : stale ? '<span class="err">This seems stuck. Press Retry.</span>' : esc(r.msg || '');
     return `<div class="row">${plBadge(pl)}<div class="who"><b>${plName(pl)}</b> <span class="muted">· ${esc(p?.name || pid)}</span><div class="msg">${msg}</div></div>
       <div class="btn-row"><span class="pill ${st[0]}"><i class="dot"></i>${st[1]}</span>${(r.status === 'failed' || stale) && !j.files_removed ? `<button class="btn sm" data-retry="${j.id}" data-t="${t}">${icon('refresh')}Retry</button>` : ''}</div></div>`;
@@ -438,10 +442,36 @@ function jobCard(j) {
       ${j.status === 'review' ? `<div class="banner" style="margin:10px 0 0"><span>Check the video, title and thumbnail, then approve.${S.st.settings.telegram_chat_id ? ' You can also approve in Telegram.' : ''}</span><div class="btn-row"><button class="btn primary sm" data-approve="${j.id}">${icon('check')}Approve and post</button><button class="btn sm quiet danger" data-reject="${j.id}">Reject</button></div></div>` : ''}
       ${j.error ? `<p class="err small">${esc(j.error)}</p>` : last && (j.status === 'preparing' || j.status === 'making') ? `<p class="small muted">${esc(last.msg)}</p>` : ''}
       <div class="rows">${rows}</div>
+      ${v && !j.files_removed && (j.targets || []).some(t => /:whatsapp$/.test(t)) ? `<div class="btn-row" style="margin-top:10px"><button class="btn sm" data-wa-share="${j.id}">${S.waFiles[j.id] ? 'Ready: tap to share to WhatsApp Status' : 'Share to WhatsApp Status'}</button><span class="muted small">Opens your phone's share sheet. Choose WhatsApp, then My status.</span></div>` : ''}
       ${j.files_removed && j.status !== 'done' ? '<p class="muted small">The video file was cleared from storage after 7 days. Upload it again to post it.</p>' : ''}
     </div></div></section>`;
 }
+function waCaption(j) {
+  const p = (j.targets || []).map(t => waProfile(t.split(':')[0])).find(Boolean);
+  let link = String(j.link || p?.whatsapp.link || '').trim();
+  const tags = (j.hashtags || []).slice(0, 6).join(' ');
+  const tail = [tags, link ? '🔗 ' + link : ''].filter(Boolean).join('\n');
+  const head = [j.title, j.description].map(x => String(x || '').trim()).filter(Boolean).join('\n\n');
+  const room = Math.max(0, 700 - tail.length - (tail ? 2 : 0));
+  return [head.length > room ? head.slice(0, Math.max(0, room - 1)).trimEnd() + '…' : head, tail].filter(Boolean).join('\n\n');
+}
 document.addEventListener('click', e => {
+  const ws = e.target.closest('[data-wa-share]');
+  if (ws) busy(ws, async () => {
+    const j = S.jobs.find(x => x.id === ws.dataset.waShare); if (!j || !j.video) throw new Error('This video is no longer here.');
+    const cap = waCaption(j);
+    let file = S.waFiles[j.id];
+    if (!file) { // first tap: load the video (a share needs a fresh tap, so it opens on the second)
+      const r = await fetch('/api/preview?p=' + encodeURIComponent(j.video.pathname));
+      if (!r.ok) throw new Error('Could not load the video here. Use the copy that was sent to Telegram.');
+      S.waFiles[j.id] = new File([await r.blob()], 'whatsapp-status.mp4', { type: 'video/mp4' });
+      toast('Video ready. Tap the button again to share it.'); rerenderMain(); return;
+    }
+    if (!(navigator.canShare && navigator.canShare({ files: [file] }))) { try { await navigator.clipboard.writeText(cap); } catch {} throw new Error('Sharing a video is not available in this browser. Open KMR Studio on your phone, or use the copy in Telegram. The caption was copied.'); }
+    try { await navigator.clipboard.writeText(cap); } catch {}
+    try { await navigator.share({ files: [file], text: cap }); toast('In WhatsApp choose My status. The caption is copied: paste it if it is missing.'); }
+    catch (err) { if (err.name !== 'AbortError') throw err; }
+  });
   const r = e.target.closest('[data-retry]'), d = e.target.closest('[data-del]'), rl = e.target.closest('[data-act="reload"]');
   if (rl) loadJobs();
   const ap = e.target.closest('[data-approve]'), rj = e.target.closest('[data-reject]');
@@ -484,6 +514,7 @@ function profileCard(p) {
     ${acc('youtube', 'YouTube', status('youtube') + (p.youtube.own_keys ? ' <span class="muted">· uses this profile\'s own Google app</span>' : ''), ytBody, ytBtns + (p.youtube.own_keys && !p.youtube.ok ? `<button class="btn sm quiet" data-own-clear="${p.id}" title="Use the Google app from Settings instead">Use shared keys</button>` : ''))}
     ${acc('instagram', 'Instagram and Facebook', p.facebook.ok ? `<span class="ok">Page: ${esc(p.facebook.label)}</span>${p.instagram.ok ? ` · <span class="ok">Instagram ${esc(p.instagram.label)}</span>` : ' · <span class="err">no Instagram linked to this Page</span>'}` : status('facebook'), metaBody, metaBtns)}
     ${acc('linkedin', 'LinkedIn', status('linkedin') + (p.linkedin.ok ? liExp : ''), '', (p.linkedin.ok ? `<button class="btn sm" data-check="${p.id}:linkedin">Check</button>` : '') + `<button class="btn sm ${p.linkedin.ok ? '' : 'primary'}" data-oauth="${p.id}:linkedin" ${s.li_client_id ? '' : 'disabled title="Save the LinkedIn keys in Settings first"'}>${p.linkedin.ok ? 'Reconnect' : 'Connect'}</button>` + (p.linkedin.ok ? `<button class="btn sm quiet danger" data-disc="${p.id}:linkedin">Disconnect</button>` : ''))}
+    ${acc('whatsapp', 'WhatsApp Status', p.whatsapp.ok ? '<span class="ok">On: the video and caption arrive in your Telegram</span>' : status('whatsapp'), `<label class="field"><span class="label">Link to add under every Status (optional)</span><input id="wa-link-${p.id}" inputmode="url" value="${esc(p.whatsapp.link || '')}" placeholder="https://kmr-groups.com" autocomplete="off"></label><p class="muted small" style="margin:6px 0 0">WhatsApp has no official way to post a Status automatically. KMR Studio sends the finished video and a ready caption to your Telegram, and you share it to My status in two taps.</p>`, p.whatsapp.ok ? `<button class="btn sm primary" data-wa="${p.id}">Save link</button><button class="btn sm" data-check="${p.id}:whatsapp">Check</button><button class="btn sm quiet danger" data-disc="${p.id}:whatsapp">Turn off</button>` : `<button class="btn sm primary" data-wa="${p.id}">Turn on</button>`)}
     ${acc('x', 'X', status('x') + ' <span class="muted">· paid by X per post</span>', '', p.x.ok ? connected('x') : `<button class="btn sm primary" data-oauth="${p.id}:x" ${s.x_client_id ? '' : 'disabled title="Save the X keys in Settings first"'}>Connect</button>`)}
     <details class="help"><summary>Own Google keys for this profile (optional)</summary>
       <p class="muted small">YouTube allows about 6 uploads a day per Google project. Give a busy profile its own project's keys to get its own limit.${p.youtube.own_keys ? ' <b>Own keys saved.</b>' : ''}</p>
@@ -512,6 +543,7 @@ document.addEventListener('click', e => {
       }
       throw err;
     } S.open[d.meta + ':meta'] = false; await refreshState(); rerenderMain(); toast(r.message); });
+  if (d.wa) busy(t, async () => { const r = await api(`/profiles/${d.wa}/whatsapp/save`, { body: { link: $('#wa-link-' + d.wa).value } }); await refreshState(); rerenderMain(); toast(r.message); });
   if (d.oauth) { const [pid, k] = d.oauth.split(':'); busy(t, async () => { const r = await api(`/profiles/${pid}/${k}/start`); location.href = r.url; }); }
   if (d.yt) busy(t, async () => { const first = !S.yt[d.yt]; S.yt[d.yt] = { ...await api(`/profiles/${d.yt}/youtube/start`, { body: {} }), polling: true }; rerenderMain(); if (first) ytPoll(d.yt); });
   if (d.ytcheck) busy(t, async () => { await ytPoll(d.ytcheck, 0, true); if (S.yt[d.ytcheck]) toast('Google has not seen the code yet. Enter it at google.com/device and press Allow.'); });

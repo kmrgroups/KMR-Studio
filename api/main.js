@@ -5,7 +5,7 @@ const kv = require('../cloud/kv');
 const files = require('../cloud/files');
 const jobs = require('../cloud/jobs');
 
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 
 function route(req) {
   const u = new URL(req.url, 'http://x');
@@ -29,7 +29,7 @@ async function state(req) {
   return out;
 }
 
-const PLATFORM_MOD = { youtube: 'youtube', instagram: 'meta', facebook: 'meta', meta: 'meta', linkedin: 'linkedin', x: 'x' };
+const PLATFORM_MOD = { youtube: 'youtube', instagram: 'meta', facebook: 'meta', meta: 'meta', linkedin: 'linkedin', x: 'x', whatsapp: 'whatsapp' };
 const mod = name => require('../cloud/' + PLATFORM_MOD[name]);
 
 module.exports = async function handler(req, res) {
@@ -85,8 +85,9 @@ module.exports = async function handler(req, res) {
       await yt.setOwnKeys(m[1], b.client_id, b.client_secret); return H.send(res, 200, { ok: true });
     }
     if ((m = /^\/profiles\/([\w-]+)\/meta\/connect$/.exec(path)) && M === 'POST') return H.send(res, 200, { message: await require('../cloud/meta').connect(m[1], b) });
+    if ((m = /^\/profiles\/([\w-]+)\/whatsapp\/save$/.exec(path)) && M === 'POST') return H.send(res, 200, { message: await require('../cloud/whatsapp').save(m[1], b) });
     if ((m = /^\/profiles\/([\w-]+)\/(linkedin|x)\/start$/.exec(path))) return H.send(res, 200, { url: await mod(m[2]).authUrl(m[1], base) });
-    if ((m = /^\/profiles\/([\w-]+)\/(youtube|meta|instagram|facebook|linkedin|x)\/(check|disconnect)$/.exec(path)) && M === 'POST') {
+    if ((m = /^\/profiles\/([\w-]+)\/(youtube|meta|instagram|facebook|linkedin|x|whatsapp)\/(check|disconnect)$/.exec(path)) && M === 'POST') {
       if (m[3] === 'check') return H.send(res, 200, { message: await mod(m[2]).check(m[1]) });
       await mod(m[2]).disconnect(m[1]); return H.send(res, 200, { ok: true });
     }
